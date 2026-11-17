@@ -67,11 +67,9 @@ jobs:
           ref: ${{ steps.gate.outputs.sha }}
           persist-credentials: false
           path: candidate
-      - name: Reject symlink snapshots before model access
+      - name: Validate snapshot symlinks before model access
         if: steps.gate.outputs.decision == 'allow'
-        run: |
-          set -euo pipefail
-          test -z "$(find candidate -path candidate/.git -prune -o -type l -print)"
+        run: node policy/tooling/agent-snapshot.mjs candidate
       - name: Install isolated pinned OpenCode CLI after admission
         if: steps.gate.outputs.decision == 'allow'
         run: docker build --file policy/tooling/agent-runner/Dockerfile --tag agent-runner policy

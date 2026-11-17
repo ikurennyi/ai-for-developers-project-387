@@ -3,9 +3,106 @@ require "yaml"
 require "json"
 require "open3"
 require "tempfile"
+require "tmpdir"
+require "fileutils"
 
 class WorkflowTest < Minitest::Test
   ROOT = File.expand_path("..", __dir__)
+
+  def test_implementation_snapshot_accepts_existing_protected_skill_aliases
+    with_implementation_snapshot do |candidate, run|
+      aliases = Dir.glob(File.join(ROOT, ".claude/skills/*")).select { |path| File.symlink?(path) }
+      refute_empty aliases, "Regression fixture must include the repository's actual skill aliases"
+      aliases.each do |path|
+        name = File.basename(path)
+        FileUtils.mkdir_p(File.join(candidate, ".agents/skills", name))
+        File.symlink(File.readlink(path), File.join(candidate, ".claude/skills", name))
+      end
+      _, stderr, status = run.call
+      assert status.success?, "Existing protected aliases must not block the executor: #{stderr}"
+      aliases.each do |path|
+        assert_equal File.readlink(path), File.readlink(File.join(candidate, ".claude/skills", File.basename(path)))
+      end
+    end
+  end
+
+  def test_implementation_snapshot_accepts_plain_checkout_without_inspecting_git_internals
+    with_implementation_snapshot do |candidate, run|
+      FileUtils.mkdir_p(File.join(candidate, ".git"))
+      File.symlink("../../outside", File.join(candidate, ".git/internal"))
+      _, stderr, status = run.call
+      assert status.success?, stderr
+      assert File.symlink?(File.join(candidate, ".git/internal"))
+    end
+  end
+
+  def test_implementation_snapshot_rejects_unapproved_symlinks
+    {
+      "frontend/alias" => "../.agents/skills/example",
+      "frontend/credential-alias" => "../.env",
+      "frontend/git-alias" => "../.git",
+      ".claude/skills/example" => "/context",
+      ".claude/skills/other" => "../../.agents/skills/example",
+      ".claude/skills/example-escape" => "../../../outside",
+      ".claude/skills/example-git" => "../../.git",
+      ".claude/skills/example-dangling" => "../../.agents/skills/example-dangling",
+      ".git" => "../outside"
+    }.each do |path, target|
+      with_implementation_snapshot do |candidate, run|
+        File.write(File.join(candidate, ".git"), "synthetic gitdir fixture") unless path == ".git"
+        File.symlink(target, File.join(candidate, path))
+        _, _, status = run.call
+        refute status.success?, "Unsafe snapshot link was accepted: #{path}"
+      end
+    end
+  end
+
+  def test_implementation_snapshot_rejects_chained_skill_aliases_and_symlink_parents
+    %w[target-parent target-directory target-file alias-parent].each do |kind|
+      with_implementation_snapshot do |candidate, run|
+        case kind
+        when "target-parent"
+          FileUtils.rmdir(File.join(candidate, ".agents/skills/example"))
+          FileUtils.rmdir(File.join(candidate, ".agents/skills"))
+          File.symlink("../../outside", File.join(candidate, ".agents/skills"))
+        when "target-directory"
+          FileUtils.rmdir(File.join(candidate, ".agents/skills/example"))
+          File.symlink("../../../outside", File.join(candidate, ".agents/skills/example"))
+        when "target-file"
+          FileUtils.rmdir(File.join(candidate, ".agents/skills/example"))
+          File.write(File.join(candidate, ".agents/skills/example"), "not a skill directory")
+        when "alias-parent"
+          FileUtils.rmdir(File.join(candidate, ".claude/skills"))
+          File.symlink("../.agents/skills", File.join(candidate, ".claude/skills"))
+        end
+        unless kind == "alias-parent"
+          File.symlink("../../.agents/skills/example", File.join(candidate, ".claude/skills/example"))
+        end
+        _, _, status = run.call
+        refute status.success?, "Chained snapshot link was accepted: #{kind}"
+      end
+    end
+  end
+
+  def with_implementation_snapshot
+    workflow = YAML.safe_load_file(File.join(ROOT, ".github/workflows/implement-spec.yml"))
+    steps = workflow.fetch("jobs").fetch("implement").fetch("steps")
+    step = steps.find { |item| item.fetch("name", "").end_with?("before model access") }
+    assert_equal "steps.gate.outputs.decision == 'allow'", step.fetch("if")
+    model = steps.find { |item| item["id"] == "model" }
+    assert_operator steps.index(step), :<, steps.index(model)
+    Dir.mktmpdir("implementation-snapshot-") do |directory|
+      candidate = File.join(directory, "candidate")
+      %w[.claude/skills .agents/skills/example frontend].each do |path|
+        FileUtils.mkdir_p(File.join(candidate, path))
+      end
+      FileUtils.mkdir_p(File.join(directory, "outside"))
+      File.write(File.join(candidate, ".env"), "synthetic fixture, not credentials")
+      FileUtils.mkdir_p(File.join(directory, "policy/tooling"))
+      FileUtils.cp(File.join(ROOT, "tooling/agent-snapshot.mjs"), File.join(directory, "policy/tooling"))
+      yield candidate, -> { Open3.capture3("bash", "-euo", "pipefail", "-c", step.fetch("run"), chdir: directory) }
+    end
+  end
 
   def test_workflow_security_and_environment_contract
     workflow = YAML.safe_load_file(File.join(ROOT, ".github/workflows/application-check.yml"))

@@ -48,6 +48,13 @@ Arbitrary PR bodies cannot authorize a different task: approval is revalidated.
    edit policy/runtime/credential paths or publish. Head config is never the
    process working directory. The model performs implementation and internal
    standards/spec review; it must not claim it ran tests.
+   Before model access, trusted snapshot validation permits only the repository's
+   protected `.claude/skills/NAME → ../../.agents/skills/NAME` aliases, with an
+   existing internal directory target and no symlinked ancestors. Both paths
+   remain non-editable by model tools. All other snapshot symlinks, including
+   public aliases to protected files, dangling/chained links and `.git` symlinks,
+   fail closed. The real `.git` directory is not traversed. Validation does not
+   remove or dereference repository aliases.
 4. A separate job without model/publication secrets applies the complete patch
    and runs the normal policy and aggregate checks against disposable PostgreSQL.
 5. An independent no-model reporter publishes success or
