@@ -4,13 +4,15 @@
 on opened/reopened/updated/ready PRs. It does not use `opencode github run`, resume
 the implementation session, implement fixes, or dispatch another workflow.
 The explicit policy is root `REVIEW.md`; `.opencode/agents/github-review.md`
-allows only read/glob/grep and read-only external-directory access to the candidate.
+allows only read and read-only external-directory access to the candidate.
 Shell, network, edits, skills, MCP and delegation are denied by default.
 
 ## Trust, context and publication
 
 The workflow checks out default-branch policy to `policy`, and the admitted exact
-head SHA to `candidate`. It runs all scripts and OpenCode from trusted policy,
+head SHA to `candidate`. It runs all scripts from trusted policy and OpenCode
+in a read-only container with managed policies and read-only candidate/context
+mounts (`/workspace`, `/context`),
 never loads candidate configuration or instructions, and never executes PR code.
 Checkouts retain no Git credentials. Only the model step receives
 `OPENCODE_API_KEY`; it receives no GH_TOKEN. A separate trusted collector reads
@@ -73,7 +75,7 @@ events/manual authorization, checkout trust, least privileges, model isolation,
 criteria, shared budget use, no cascade, and stale-head publication protection.
 It also runs the real adapter/shared policy against fixture GitHub HTTP responses
 and a recording `gh` executable, plus the actual model-step shell with fixture
-CLI/timeout commands. These cover automation trust, rejected forks/dispatches,
+container/timeout commands. These cover automation trust, rejected forks/dispatches,
 attempt exhaustion/history failure, context gaps, verdicts, and stale/cancelled
 publication suppression without network or model credentials.
 The main integration wires this suite into `mise run ci:validate`.

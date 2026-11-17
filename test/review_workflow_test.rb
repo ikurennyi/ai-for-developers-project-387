@@ -41,7 +41,8 @@ class ReviewWorkflowTest < Minitest::Test
     assert_equal "policy", model.fetch("working-directory")
     assert_equal ["OPENCODE_API_KEY"], model.fetch("env").keys
     assert_includes model.fetch("run"), "$(cat REVIEW.md)"
-    assert_includes model.fetch("run"), "--standalone --archived"
+    assert_includes model.fetch("run"), "--read-only --cap-drop ALL"
+    assert_includes File.read(File.join(ROOT, "tooling/agent-runner/Dockerfile")), '"--standalone", "--archived"'
     refute_includes model.fetch("run"), "--session"
     refute_includes model.fetch("run"), "github run"
     steps.each do |s|
@@ -52,8 +53,8 @@ class ReviewWorkflowTest < Minitest::Test
     agent = File.read(File.join(ROOT, ".opencode/agents/github-review.md")).split("---")[1]
     permissions = YAML.safe_load(agent).fetch("permissions")
     assert_equal({"action" => "*", "resource" => "*", "effect" => "deny"}, permissions.first)
-    assert_equal %w[external_directory glob grep read], permissions.select { |p| p["effect"] == "allow" }.map { |p| p["action"] }.uniq.sort
-    assert_equal "__CANDIDATE_DIRECTORY__/*", permissions.find { |p| p["action"] == "external_directory" }.fetch("resource")
+    assert_equal %w[external_directory read], permissions.select { |p| p["effect"] == "allow" }.map { |p| p["action"] }.uniq.sort
+    assert_equal "/workspace/*", permissions.find { |p| p["action"] == "external_directory" }.fetch("resource")
   end
 
   def test_shared_budget_and_no_automatic_cascade_are_enforced_before_model
@@ -269,9 +270,9 @@ class ReviewWorkflowTest < Minitest::Test
       assert_includes context.fetch("gaps"), "CI checks: unavailable; do not infer success or approval"
       agent = File.read(File.join(policy, ".opencode/agents/github-review.md"))
       refute_includes agent, "__CANDIDATE_DIRECTORY__"
-      assert_includes agent, File.realpath(File.join(policy, "../candidate"))
+      assert_includes agent, "/workspace/*"
       permissions = YAML.safe_load(agent.split("---")[1]).fetch("permissions")
-      assert_equal %w[external_directory glob grep read], permissions.select { |p| p["effect"] == "allow" }.map { |p| p["action"] }.uniq.sort
+      assert_equal %w[external_directory read], permissions.select { |p| p["effect"] == "allow" }.map { |p| p["action"] }.uniq.sort
     end
   end
 
@@ -280,8 +281,8 @@ class ReviewWorkflowTest < Minitest::Test
     with_review_runner do |dir, policy, _env, _pr, _routes, _run|
       File.write(File.join(policy, "REVIEW.md"), "Explicit trusted criteria")
       File.write(File.join(policy, "review-context.json"), "{}")
-      model = File.join(dir, "bin/opencode")
-      File.write(model, "#!/bin/sh\nprintf 'model result'\nexit \"${FIXTURE_MODEL_EXIT:-0}\"\n")
+      model = File.join(dir, "bin/docker")
+      File.write(model, "#!/bin/sh\ntest -z \"${GH_TOKEN:-}\" || exit 99\nprintf '%s\\n' \"$@\" > \"$FIXTURE_DOCKER_ARGS\"\nprintf 'model result'\nexit \"${FIXTURE_MODEL_EXIT:-0}\"\n")
       File.chmod(0o700, model)
       timeout = File.join(dir, "bin/timeout")
       File.write(timeout, <<~SH)
@@ -304,6 +305,8 @@ class ReviewWorkflowTest < Minitest::Test
           "PATH" => "#{File.join(dir, "bin")}:/usr/bin:/bin", "OPENCODE_API_KEY" => "fixture-only",
           "OPENCODE_MODEL" => "fixture/model", "REVIEW_PR" => "19", "GH_TOKEN" => nil,
           "GITHUB_OUTPUT" => output, "RUNNER_TEMP" => dir,
+          "GITHUB_WORKSPACE" => dir, "GITHUB_RUN_ID" => "700", "GITHUB_RUN_ATTEMPT" => "1",
+          "FIXTURE_DOCKER_ARGS" => File.join(dir, "docker-args"),
           "FIXTURE_TIMEOUT_ARGS" => File.join(dir, "timeout-args")
         }.merge(extra)
         _stdout, stderr, status = Open3.capture3(env, "/bin/bash", "-c", script, chdir: policy)
@@ -315,6 +318,12 @@ class ReviewWorkflowTest < Minitest::Test
         else
           assert_includes values, "started=true"
           assert_equal ["--signal=TERM", "--kill-after=20s", "10m"], File.readlines(File.join(dir, "timeout-args"), chomp: true)
+          unless extra.key?("FIXTURE_TIMEOUT_EXIT")
+            args = File.read(File.join(dir, "docker-args"))
+            assert_includes args, "dst=/workspace,readonly"
+            assert_includes args, "--read-only"
+            refute_includes args, "GH_TOKEN"
+          end
         end
       end
     end

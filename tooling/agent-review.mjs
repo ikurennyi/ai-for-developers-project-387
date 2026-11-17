@@ -48,12 +48,6 @@ async function context() {
   const state = readState()
   const pr = await github(prPath)
   if (pr.head.sha !== state.sha || !trustedPullRequest(pr, repo, owner)) throw new Error("Stale or untrusted PR")
-  // OpenCode checks external_directory against canonical absolute boundaries,
-  // not paths relative to the agent file. Resolve only our fixed checkout.
-  const candidate = fs.realpathSync(path.join(root, "..", "candidate"))
-  const agentPath = path.join(root, ".opencode/agents/github-review.md")
-  fs.writeFileSync(agentPath, fs.readFileSync(agentPath, "utf8")
-    .replace("__CANDIDATE_DIRECTORY__", candidate))
   const gaps = []
   async function optional(label, action) {
     try { return await action() } catch {
