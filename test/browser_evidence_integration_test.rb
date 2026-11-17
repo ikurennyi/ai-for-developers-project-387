@@ -2,6 +2,7 @@
 require "json"
 require "open3"
 require "tmpdir"
+require "fileutils"
 require_relative "resource_assertions"
 
 def assert(condition, message)
@@ -10,14 +11,19 @@ end
 
 root = File.expand_path("..", __dir__)
 Dir.mktmpdir("browser-evidence-test-") do |directory|
+  # Vitest annotates traces using paths relative to frontend. In a nearby
+  # worktree a normal TMPDIR is too short to expose attachment name overflow.
+  runtime_parent = File.join(directory, "runtime-parent-#{"long-" * 24}")
+  FileUtils.mkdir_p(runtime_parent)
   [nil, "--probe-browser-failure"].each_with_index do |mode, index|
     evidence = File.join(directory, index.to_s)
     output, status = Open3.capture2e(
-      { "SMOKE_EVIDENCE_DIR" => evidence },
+      { "SMOKE_EVIDENCE_DIR" => evidence, "TMPDIR" => runtime_parent },
       "ruby", "scripts/smoke.rb", *[mode].compact, chdir: root
     )
     puts output.lines.last(12).join
     raise "unexpected smoke status:\n#{output}" unless status.success? == mode.nil?
+    raise "attachment name overflow" if output.include?("ENAMETOOLONG")
     result = JSON.parse(File.read(File.join(evidence, "result.json")))
     raise "wrong evidence verdict" unless result.fetch("status") == (mode ? "failed" : "passed")
     traces = Dir.glob(File.join(evidence, "**", "*.trace.zip"))
@@ -37,6 +43,10 @@ Dir.mktmpdir("browser-evidence-test-") do |directory|
     raise "database credential leaked" if logs.any? { |path| File.read(path).match?(/postgres(?:ql)?:\/\/[^\s]+:[^\s]+@/) }
     resources = JSON.parse(output.lines.find { |line| line.start_with?("SMOKE_RESOURCES ") }.delete_prefix("SMOKE_RESOURCES "))
     assert_clean(resources)
+    assert(!File.exist?(resources.fetch("browser_directory")), "browser evidence staging directory survived")
+    attachments = Dir.glob(File.join(evidence, "browser", "**", "attachments", "*"))
+    assert(!attachments.empty?, "missing Vitest trace attachments")
+    assert(attachments.all? { |path| File.basename(path).bytesize <= 255 }, "attachment basename exceeds filesystem limit")
   end
 end
 puts "Browser evidence retained on success and failure; runtime resources cleaned"

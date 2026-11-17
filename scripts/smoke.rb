@@ -22,6 +22,13 @@ class Smoke
       "RAILS_LOG_TO_STDOUT" => "1", "SECRET_KEY_BASE" => SecureRandom.hex(64) }
     @evidence = File.expand_path(ENV["SMOKE_EVIDENCE_DIR"]) if ENV["SMOKE_EVIDENCE_DIR"]
     @env["SMOKE_EVIDENCE_ENABLED"] = @evidence ? "1" : nil
+    if @evidence
+      # Vitest uses the trace's frontend-relative path in attachment basenames.
+      # Keep that path short regardless of the checkout or TMPDIR parent length.
+      @browser_directory = File.join(ROOT, "frontend", ".be-#{SecureRandom.hex(6)}")
+      Dir.mkdir(@browser_directory, 0700)
+      @env["SMOKE_BROWSER_EVIDENCE_DIR"] = @browser_directory
+    end
   end
 
   def start(label, *command, directory: ROOT, env: {})
@@ -289,11 +296,15 @@ class Smoke
         warn "--- #{File.basename(path)} ---\n#{text}"
       end
     end
-    puts "SMOKE_RESOURCES #{JSON.generate(container: @service_url ? nil : @id, database: @database, pids: @children, directory: @directory)}"
+    puts "SMOKE_RESOURCES #{JSON.generate(container: @service_url ? nil : @id, database: @database, pids: @children, directory: @directory, browser_directory: @browser_directory)}"
     begin
       export_evidence(failed || $!) if @evidence
     ensure
-      FileUtils.remove_entry(@directory) if File.directory?(@directory)
+      begin
+        FileUtils.remove_entry(@browser_directory) if @browser_directory && File.directory?(@browser_directory)
+      ensure
+        FileUtils.remove_entry(@directory) if File.directory?(@directory)
+      end
     end
   end
 
@@ -307,7 +318,7 @@ class Smoke
       text = text.gsub(@password, "[REDACTED]") if @password && !@password.empty?
       File.write(File.join(@evidence, "logs", File.basename(path)), text)
     end
-    browser = File.join(@directory, "browser-evidence")
+    browser = @browser_directory
     FileUtils.cp_r(browser, File.join(@evidence, "browser")) if File.directory?(browser)
     File.write(File.join(@evidence, "result.json"), JSON.pretty_generate(
       status: error ? "failed" : "passed", error: error&.class&.name, database: @database
