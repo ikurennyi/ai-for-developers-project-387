@@ -22,9 +22,13 @@ human for renewed approval.
 
 ## GitHub discussion runner
 
-The `/oc` and `/opencode` runner reads code and uses gh; it cannot implement
-code. By default it uses `github-discussion`, which cannot create, edit or
-comment on issues. The workflow posts its final answer.
+The discussion `/oc` and `/opencode` runner reads code and uses gh; it cannot
+implement code. By default it uses `github-discussion`, which cannot create,
+edit or comment on issues. The workflow posts its final answer.
+Explicit implementation and human PR-fix commands belong to a separate runner:
+see [approved executor](../agent-executor.md) for grammar, approval, finite budget
+and separately owner-authorized publication. Those commands never invoke the
+discussion model as well.
 
 ### Explicit stage commands
 
