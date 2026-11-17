@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { approvalValid, budgetDecision, collectBudget, routeCommand, trustedPullRequest } from "../tooling/agent-policy.mjs"
+import { approvalValid, budgetDecision, collectBudget, protectedPath, routeCommand, trustedPullRequest } from "../tooling/agent-policy.mjs"
 
 const event = (body, pr = false, type = "User") => ({
   action: "created",
@@ -68,10 +68,16 @@ test("approval is a genuine source-owner comment covering both specification and
     html_url: "https://github.com/owner/repo/issues/17#issuecomment-99",
     body: "Одобряю спецификацию #22 и актуальные тикеты #18–#21. Начинаем реализацию." }
   assert.equal(approvalValid(approval, context), true)
+  assert.equal(approvalValid({ ...approval, body: "/oc одобряю спецификацию #22 и список тикетов #18–#21." }, context), true)
   assert.equal(approvalValid({ ...approval, user: { login: "github-actions[bot]", type: "Bot" } }, context), false)
   for (const body of ["Не одобряю спецификацию #22 и тикеты #18–#21", "ready-for-agent", "Одобряю спецификацию #22"]) {
     assert.equal(approvalValid({ ...approval, body }, context), false)
   }
+  for (const body of [
+    "Approve specification #22. Do not implement ticket #18; it is not approved.",
+    "Одобряю спецификацию #22 и тикеты #18–#21. Но #18 не реализовывать.",
+    "Одобряю спецификацию #22. Обсуждали тикеты #18–#21."
+  ]) assert.equal(approvalValid({ ...approval, body }, { ...context, tickets: [18] }), false, body)
 })
 
 test("history collector counts each admitted run attempt across both comment event channels", async () => {
@@ -94,4 +100,14 @@ test("history collector counts each admitted run attempt across both comment eve
   const failed = await collectBudget({ api: { paginate: async () => { throw new Error("API outage") } },
     repo: "owner/repo", current: { id: 11, run_attempt: 1 }, scope: "pr-8", mode: "interactive", workflowPath })
   assert.equal(failed.decision, "infra")
+})
+
+test("implementation and publisher share a protected policy/credentials path boundary", () => {
+  for (const file of [".github/workflows/hexlet-check.yml", ".opencode/agents/x.md",
+    "opencode.json", "frontend/opencode.jsonc", "AGENTS.md", "docs/AGENTS.md",
+    "tooling/agent-policy.mjs", "backend/.env.production", "../outside", "/proc/self/environ",
+    "mise.toml", "schema.png", "STEP-4.md"]) assert.equal(protectedPath(file), true, file)
+  for (const file of ["frontend/src/views/Calendar.vue", "backend/app/models/booking.rb", "frontend/browser/calendar.spec.ts"]) {
+    assert.equal(protectedPath(file), false, file)
+  }
 })

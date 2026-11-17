@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { execFileSync } from "node:child_process"
-import { github, trustedPullRequest, approvalValid } from "./agent-policy.mjs"
+import { github, trustedPullRequest, approvalValid, protectedPath } from "./agent-policy.mjs"
 
 const repo = process.env.GITHUB_REPOSITORY
 const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"))
@@ -33,6 +33,10 @@ try {
   // Extract only the two named data files. Never execute or trust artifact scripts.
   const metadata = JSON.parse(execFileSync("unzip", ["-p", archive, "metadata.json"], { encoding: "utf8" }))
   const patch = execFileSync("unzip", ["-p", archive, "implementation.patch"])
+  const assessment = execFileSync("unzip", ["-p", archive, "report.md"], { encoding: "utf8", maxBuffer: 1024 * 1024 }).trim()
+  if (assessment.length > 25000 || !["## Checks", "## Risk", "## Rollback"].every((header) => assessment.includes(header))) {
+    throw new Error("Implementation assessment must state checks, concrete consequences and recovery")
+  }
   if (metadata.repo !== repo || metadata.sha !== expected || metadata.run !== runId ||
       metadata.attempt !== run.run_attempt || !/^[a-z]+\/[a-z0-9][a-z0-9/-]*$/.test(metadata.branch)) {
     throw new Error("Artifact provenance or expected SHA differs")
@@ -59,10 +63,8 @@ try {
   writeFileSync(patchFile, patch)
   git("apply", "--check", "--index", patchFile)
   git("apply", "--index", patchFile)
-  const changes = git("diff", "--cached", "--name-only", "--no-renames").split("\n")
-  if (!changes.length || changes.some((path) => path.startsWith(".") ||
-      /(^|\/)(AGENTS\.md|CLAUDE\.md|opencode\.jsonc?|mise(?:\.local)?\.toml)$/.test(path) ||
-      path.startsWith("tooling/agent-") || /(^|\/)[^/]*\.env/.test(path))) {
+  const changes = git("diff", "--cached", "--name-only", "-z", "--no-renames").split("\0").filter(Boolean)
+  if (!changes.length || changes.some(protectedPath)) {
     throw new Error("Patch contains protected policy or credential paths")
   }
   git("diff", "--cached", "--check")
@@ -86,6 +88,7 @@ try {
     `Fresh checks and independent review of ${sha} require owner confirmation before merge.\n\n` +
     `## Risk\n${metadata.mode === "fix" ? "PR feedback corrections may regress adjacent behavior." : "Approved product behavior and its adjacent flows may regress."} Review the patch, test evidence and browser artifact.\n\n` +
     `## Rollback\nRevert the implementation commit in Git, then repeat aggregate and browser checks. If the diff contains migrations/data changes, assess data recovery separately; code revert alone is not proof of recovery.\n\n` +
+    `## Implementation assessment\n${assessment}\n\n` +
     metadata.tickets.map((n) => `Closes #${n}`).join("\n") +
     `\n\n<!-- agent-context ${JSON.stringify({ source: metadata.source, spec: metadata.spec, tickets: metadata.tickets, approval: metadata.approval })} -->`
   if (!pr && inputs.allow_pr === "true") {

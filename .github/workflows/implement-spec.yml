@@ -47,6 +47,7 @@ jobs:
       decision: ${{ steps.gate.outputs.decision }}
       sha: ${{ steps.gate.outputs.sha }}
       verdict: ${{ steps.model.outputs.verdict }}
+      patch_result: ${{ steps.patch.outcome }}
     steps:
       - name: Check out trusted policy, never PR configuration
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -109,6 +110,7 @@ jobs:
             docker stop --time 5 "implement-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           fi
       - name: Validate protected paths and prepare complete patch
+        id: patch
         if: steps.model.outputs.verdict == 'success'
         run: node policy/tooling/agent-control.mjs patch candidate
       - name: Save immutable run-scoped implementation evidence
@@ -126,6 +128,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    outputs:
+      verdict: ${{ steps.check.outputs.verdict }}
     services:
       postgres:
         image: postgres:18.3-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7
@@ -162,12 +166,20 @@ jobs:
           mise run install
           mise exec -- node frontend/node_modules/playwright/cli.js install --with-deps chromium
       - name: Recheck policies and complete aggregate
+        id: check
         env:
           CI: "true"
           DATABASE_URL: postgresql://ci:ci-ephemeral@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/scaffold_ci
         run: |
-          mise run ci:validate
-          mise run check
+          set -euo pipefail
+          if timeout --kill-after=15s 20m bash -euo pipefail -c 'mise run ci:validate && mise run check'; then
+            echo "verdict=success" >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            if [ "$status" = 124 ] || [ "$status" = 137 ]; then verdict=timeout; else verdict=agent_failed; fi
+            echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
   report:
     if: always() && needs.route.outputs.run == 'true'
@@ -185,17 +197,20 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
           JOB_RESULT: ${{ needs.implement.result }}
           CHECK_RESULT: ${{ needs.verify.result }}
+          CHECK_VERDICT: ${{ needs.verify.outputs.verdict }}
           BUDGET_DECISION: ${{ needs.implement.outputs.decision }}
           MODEL_VERDICT: ${{ needs.implement.outputs.verdict }}
+          PATCH_RESULT: ${{ needs.implement.outputs.patch_result }}
           LAST_SHA: ${{ needs.implement.outputs.sha }}
         run: |
           set -euo pipefail
           verdict=infra
           if [ "$BUDGET_DECISION" = limit_exhausted ]; then verdict=limit_exhausted
-          elif [ "$JOB_RESULT" = cancelled ] || [ "$MODEL_VERDICT" = timeout ]; then verdict=timeout
+          elif [ "$JOB_RESULT" = cancelled ] || [ "$CHECK_RESULT" = cancelled ] || [ "$MODEL_VERDICT" = timeout ] || [ "$CHECK_VERDICT" = timeout ]; then verdict=timeout
           elif [ "$MODEL_VERDICT" = agent_failed ]; then verdict=agent_failed
+          elif [ "$MODEL_VERDICT" = success ] && [ "$PATCH_RESULT" = failure ]; then verdict=agent_failed
+          elif [ "$MODEL_VERDICT" = success ] && [ "$CHECK_VERDICT" = agent_failed ]; then verdict=agent_failed
           elif [ "$MODEL_VERDICT" = success ] && [ "$CHECK_RESULT" = success ]; then verdict=success
-          elif [ "$MODEL_VERDICT" = success ]; then verdict=agent_failed
           fi
           sha="$LAST_SHA"
           if [ "$GITHUB_EVENT_NAME" = pull_request_review_comment ] || jq -e '.issue.pull_request' "$GITHUB_EVENT_PATH" > /dev/null; then

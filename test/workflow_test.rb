@@ -320,9 +320,80 @@ class WorkflowTest < Minitest::Test
     assert_equal "steps.gate.outputs.decision == 'allow'", model.fetch("if")
   end
 
+  def test_implementation_report_classifies_check_preparation_failure_as_infrastructure
+    assert_equal "infra", implementation_verdict(
+      "MODEL_VERDICT" => "success", "CHECK_RESULT" => "failure"
+    )
+  end
+
+  def test_implementation_report_classifies_cancelled_verification_as_timeout
+    assert_equal "timeout", implementation_verdict(
+      "MODEL_VERDICT" => "success", "CHECK_RESULT" => "cancelled"
+    )
+  end
+
+  def test_implementation_report_classifies_actual_check_failure_as_agent_failure
+    assert_equal "agent_failed", implementation_verdict(
+      "MODEL_VERDICT" => "success", "CHECK_RESULT" => "failure", "CHECK_VERDICT" => "agent_failed"
+    )
+  end
+
+  def test_implementation_report_classifies_bounded_check_timeout
+    assert_equal "timeout", implementation_verdict(
+      "MODEL_VERDICT" => "success", "CHECK_RESULT" => "failure", "CHECK_VERDICT" => "timeout"
+    )
+  end
+
+  def test_implementation_report_classifies_rejected_patch_as_agent_failure
+    assert_equal "agent_failed", implementation_verdict(
+      "MODEL_VERDICT" => "success", "JOB_RESULT" => "failure", "PATCH_RESULT" => "failure"
+    )
+  end
+
+  def test_implementation_report_preserves_success_budget_and_model_verdicts
+    [
+      ["success", { "MODEL_VERDICT" => "success", "CHECK_RESULT" => "success", "CHECK_VERDICT" => "success" }],
+      ["limit_exhausted", { "BUDGET_DECISION" => "limit_exhausted", "JOB_RESULT" => "failure" }],
+      ["timeout", { "MODEL_VERDICT" => "timeout", "JOB_RESULT" => "failure" }],
+      ["timeout", { "JOB_RESULT" => "cancelled" }],
+      ["agent_failed", { "MODEL_VERDICT" => "agent_failed", "JOB_RESULT" => "failure" }],
+      ["infra", { "JOB_RESULT" => "failure", "PATCH_RESULT" => "skipped" }],
+      ["infra", { "MODEL_VERDICT" => "infra", "JOB_RESULT" => "failure" }],
+      ["infra", { "MODEL_VERDICT" => "success", "JOB_RESULT" => "failure" }]
+    ].each do |expected, env|
+      assert_equal expected, implementation_verdict(env), env.inspect
+    end
+  end
+
+  def test_implementation_check_phase_exports_its_own_bounded_verdict_without_model_secrets
+    jobs = YAML.safe_load_file(File.join(ROOT, ".github/workflows/implement-spec.yml")).fetch("jobs")
+    implement = jobs.fetch("implement")
+    verify = jobs.fetch("verify")
+    report = jobs.fetch("report").fetch("steps").first
+    patch = implement.fetch("steps").find { |step| step["id"] == "patch" }
+    check = verify.fetch("steps").find { |step| step["id"] == "check" }
+
+    assert_equal "node policy/tooling/agent-control.mjs patch candidate", patch.fetch("run")
+    assert_equal "${{ steps.patch.outcome }}", implement.fetch("outputs").fetch("patch_result")
+    assert_equal "${{ needs.implement.outputs.patch_result }}", report.fetch("env").fetch("PATCH_RESULT")
+    assert_equal "${{ steps.check.outputs.verdict }}", verify.fetch("outputs").fetch("verdict")
+    assert_equal "${{ needs.verify.outputs.verdict }}", report.fetch("env").fetch("CHECK_VERDICT")
+    assert_includes check.fetch("run"), "timeout --kill-after=15s 20m"
+    assert_includes check.fetch("run"), "mise run ci:validate && mise run check"
+    assert_includes check.fetch("run"), 'echo "verdict=$verdict" >> "$GITHUB_OUTPUT"'
+    assert_includes check.fetch("run"), '"$status" = 124'
+    assert_includes check.fetch("run"), '"$status" = 137'
+    assert_equal %w[CI DATABASE_URL], check.fetch("env").keys.sort
+    refute_includes verify.to_json, "secrets."
+    refute_includes verify.to_json, "GH_TOKEN"
+    assert_operator verify.fetch("steps").index(check), :>, verify.fetch("steps").index { |step| step["name"] == "Install locked dependencies" }
+  end
+
   def test_executor_command_never_invokes_the_discussion_model
     assert_equal "false", route("/oc fix\nИсправь ошибку", "IS_PULL_REQUEST" => "true").fetch("run")
     assert_equal "false", route("/oc implement-spec #42 tickets #43 approval https://github.com/owner/repo/issues/8#issuecomment-99").fetch("run")
+    assert_equal "true", route("/oc implement-spec #22 please explain the risks").fetch("run")
+    assert_equal "true", route("/oc fix").fetch("run")
   end
 
   def test_help_calls_are_separate_and_helper_shell_commands_stay_denied
@@ -343,6 +414,25 @@ class WorkflowTest < Minitest::Test
   end
 
   private
+
+  def implementation_verdict(env = {})
+    workflow = YAML.safe_load_file(File.join(ROOT, ".github/workflows/implement-spec.yml"))
+    report = workflow.fetch("jobs").fetch("report").fetch("steps").first
+    classification = report.fetch("run").split('sha="$LAST_SHA"', 2).first
+    stdout, stderr, status = Open3.capture3(
+      {
+        "BUDGET_DECISION" => "allow",
+        "JOB_RESULT" => "success",
+        "MODEL_VERDICT" => "",
+        "PATCH_RESULT" => "success",
+        "CHECK_RESULT" => "skipped",
+        "CHECK_VERDICT" => ""
+      }.merge(env),
+      "bash", "-euo", "pipefail", "-c", classification + 'printf "%s\n" "$verdict"'
+    )
+    assert status.success?, stderr
+    stdout.strip
+  end
 
   def route(body, env = {})
     workflow = YAML.safe_load_file(File.join(ROOT, ".github/workflows/opencode.yml"))

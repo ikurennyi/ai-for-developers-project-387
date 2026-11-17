@@ -1,12 +1,12 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "snapshots": false,
+  "formatter": false,
+  "lsp": false,
   "policies": [
     { "action": "tool.use", "resource": "*", "effect": "deny" },
     { "action": "tool.use", "resource": "read:/workspace/*", "effect": "allow" },
     { "action": "tool.use", "resource": "read:/context/*", "effect": "allow" },
-    { "action": "tool.use", "resource": "glob:/workspace/*", "effect": "allow" },
-    { "action": "tool.use", "resource": "grep:/workspace/*", "effect": "allow" },
     { "action": "tool.use", "resource": "edit:/workspace/*", "effect": "allow" },
     { "action": "tool.use", "resource": "write:/workspace/*", "effect": "allow" },
     { "action": "tool.use", "resource": "external_directory:/workspace/*", "effect": "allow" },

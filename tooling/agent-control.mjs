@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs"
 import { resolve } from "node:path"
 import { execFileSync } from "node:child_process"
-import { routeCommand, trustedPullRequest, approvalValid, collectBudget, github } from "./agent-policy.mjs"
+import { routeCommand, trustedPullRequest, approvalValid, collectBudget, protectedPath, github } from "./agent-policy.mjs"
 
 const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"))
 const repo = process.env.GITHUB_REPOSITORY
@@ -44,10 +44,11 @@ try {
     if (!approvalValid(approval, { ...context, repo })) throw new Error("No genuine source-owner approval")
     const source = await api(`issues/${context.source}`)
     const spec = await api(`issues/${context.spec}`)
+    if (source.pull_request || spec.pull_request) throw new Error("Source and specification must be issues")
     const tickets = []
     for (const n of context.tickets) {
       const ticket = await api(`issues/${n}`)
-      if (!ticket.body?.includes(`#${context.spec}`)) throw new Error("Ticket does not reference requested spec")
+      if (ticket.pull_request || !new RegExp(`#${context.spec}(?!\\d)`).test(ticket.body ?? "")) throw new Error("Ticket does not reference requested spec")
       const blockers = await all(`issues/${n}/dependencies/blocked_by`)
       const section = ticket.body?.match(/## Blocked by\s+([\s\S]*?)(?=\n## |$)/i)?.[1] ?? ""
       const textual = [...section.matchAll(/#([1-9]\d*)/g)].map((m) => Number(m[1]))
@@ -91,8 +92,8 @@ try {
     })
   } else if (process.argv[2] === "patch") {
     const candidate = resolve(process.argv[3])
-    const paths = git(candidate, "diff", "--name-only", "--no-renames", "HEAD").split("\n").filter(Boolean)
-    const untracked = git(candidate, "ls-files", "--others", "--exclude-standard").split("\n").filter(Boolean)
+    const paths = git(candidate, "diff", "--name-only", "-z", "--no-renames", "HEAD").split("\0").filter(Boolean)
+    const untracked = git(candidate, "ls-files", "-z", "--others", "--exclude-standard").split("\0").filter(Boolean)
     for (const path of [...paths, ...untracked]) {
       if (protectedPath(path)) throw new Error(`Protected policy/runtime path: ${path}`)
     }
@@ -105,10 +106,4 @@ try {
   // Only trusted error messages, no response bodies or credentials.
   process.stderr.write(`${error.message}\n`)
   process.exitCode = 1
-}
-
-function protectedPath(path) {
-  return path.startsWith(".") || /(^|\/)(?:AGENTS\.md|CLAUDE\.md|opencode\.jsonc?|mise(?:\.local)?\.toml)$/.test(path) ||
-    /(^|\/)[^/]*\.env(?:\.|$)/.test(path) || path.startsWith("tooling/agent-") ||
-    path === "STEP-4.md" || path === "schema.png"
 }

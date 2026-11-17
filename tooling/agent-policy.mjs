@@ -29,15 +29,27 @@ export function approvalValid(comment, { repo, source, spec, tickets }) {
   if (comment?.user?.login !== repo.split("/")[0] || comment.user.type !== "User" ||
       comment.author_association !== "OWNER" ||
       comment.html_url !== `https://github.com/${repo}/issues/${source}#issuecomment-${comment.id}`) return false
-  const body = (comment.body ?? "").trim()
-  if (!new RegExp(`^(?:Одобряю спецификацию|Approve specification) #${spec}(?!\\d)`, "iu").test(body)) return false
-  const approved = new Set([...body.matchAll(/#([1-9]\d*)/g)].map((match) => Number(match[1])))
-  for (const range of body.matchAll(/#([1-9]\d*)[–-]#([1-9]\d*)/g)) {
+  const body = (comment.body ?? "").trim().replace(/^\/(?:oc|opencode)[ \t]+/u, "")
+  // An explicit bounded approval clause, not arbitrary issue mentions later in
+  // the comment. Unsupported prose/qualifications require human clarification.
+  const clause = new RegExp(`^(?:Одобряю спецификацию #${spec} и (?:актуальные тикеты|список тикетов(?: из единственного тикета)?|тикеты)|Approve specification #${spec} and tickets) ((?:#[1-9]\\d*(?:[–-]#[1-9]\\d*)?)(?:,\\s*#[1-9]\\d*(?:[–-]#[1-9]\\d*)?)*)(?:\\.(?: (?:Начинаем реализацию|Можно реализовывать|Implementation approved)\\.)?)?$`, "iu").exec(body)
+  if (!clause) return false
+  const list = clause[1]
+  const approved = new Set([...list.matchAll(/#([1-9]\d*)/g)].map((match) => Number(match[1])))
+  for (const range of list.matchAll(/#([1-9]\d*)[–-]#([1-9]\d*)/g)) {
     const start = Number(range[1]), end = Number(range[2])
     if (end - start > 100 || end < start) return false
     for (let n = start; n <= end; n += 1) approved.add(n)
   }
   return tickets.every((ticket) => approved.has(ticket))
+}
+
+export function protectedPath(path) {
+  return typeof path !== "string" || !path || path.startsWith(".") ||
+    path.startsWith("/") || path.split("/").includes("..") ||
+    /(^|\/)(?:AGENTS\.md|CLAUDE\.md|opencode\.jsonc?|mise(?:\.local)?\.toml)$/.test(path) ||
+    /(^|\/)[^/]*\.env(?:\.|$)/.test(path) || path.startsWith("tooling/agent-") ||
+    path === "STEP-4.md" || path === "schema.png"
 }
 
 export function budgetDecision({ runs, current, mode, scope, workflowPath, historyComplete }) {
@@ -71,6 +83,7 @@ export async function github(path, options = {}) {
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${process.env.GH_TOKEN}`,
       "X-GitHub-Api-Version": "2022-11-28",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...options.headers
     },
     signal: AbortSignal.timeout(30000)

@@ -11,7 +11,11 @@ Replace the placeholders with the existing artifact numbers. `/opencode` is
 also accepted. The linked source-owner comment must explicitly approve the
 specification and ticket list (supported form: `Одобряю спецификацию #N и
 тикеты #A,#B` or `Approve specification #N ... #A,#B`; numeric ranges are
-accepted). Labels and bot replies are not approval. Unsupported/ambiguous
+accepted, as is an optional `/oc` prefix). Only the bounded approval clause and
+the optional sentence `Начинаем реализацию.` / `Можно реализовывать.` /
+`Implementation approved.` are accepted; arbitrary subsequent qualifications
+fail closed rather than treating excluded ticket mentions as approval.
+Labels and bot replies are not approval. Unsupported/ambiguous
 approval wording fails closed and needs human clarification, not model inference.
 
 Both kinds of PR comment accept:
