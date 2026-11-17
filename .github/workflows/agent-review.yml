@@ -51,7 +51,7 @@ jobs:
             exit 0
           fi
           for file in .github/workflows/agent-review.yml tooling/agent-review.mjs \
-            tooling/agent-policy.mjs REVIEW.md .opencode/agents/github-review.md \
+            tooling/agent-policy.mjs tooling/agent-snapshot.mjs REVIEW.md .opencode/agents/github-review.md \
             .opencode/agents/github-implementer.md tooling/agent-runner/Dockerfile \
             tooling/agent-runner/opencode.json .agents/skills/implement-spec/SKILL.md; do
             if [ ! -s "policy/$file" ]; then
@@ -140,7 +140,7 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: |
           set -euo pipefail
-          test -z "$(find candidate -path candidate/.git -prune -o -type l -print)"
+          node policy/tooling/agent-snapshot.mjs candidate
           mkdir -p "$RUNNER_TEMP/review-input"
           cp policy/REVIEW.md policy/review-context.json "$RUNNER_TEMP/review-input/"
           docker build --file policy/tooling/agent-runner/Dockerfile --tag agent-runner policy

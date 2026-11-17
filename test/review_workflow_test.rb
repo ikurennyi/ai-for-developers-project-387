@@ -42,7 +42,7 @@ class ReviewWorkflowTest < Minitest::Test
       refute status.success?
       refute_includes File.read(output), "ready=true"
 
-      %w[tooling/agent-review.mjs tooling/agent-policy.mjs REVIEW.md
+      %w[tooling/agent-review.mjs tooling/agent-policy.mjs tooling/agent-snapshot.mjs REVIEW.md
          .opencode/agents/github-review.md .opencode/agents/github-implementer.md
          tooling/agent-runner/Dockerfile tooling/agent-runner/opencode.json
          .agents/skills/implement-spec/SKILL.md].each do |file|
@@ -59,6 +59,16 @@ class ReviewWorkflowTest < Minitest::Test
       assert status.success?, stderr
       assert_includes File.read(output), "ready=true"
       refute_includes File.read(summary), "bootstrap_required"
+
+      FileUtils.rm(File.join(dir, "policy/tooling/agent-snapshot.mjs"))
+      File.write(output, "")
+      _, _, status = Open3.capture3(
+        { "GITHUB_OUTPUT" => output, "GITHUB_STEP_SUMMARY" => summary },
+        "bash", "-euo", "pipefail", "-c", probe.fetch("run"), chdir: dir
+      )
+      refute status.success?
+      refute_includes File.read(output), "ready=true"
+      assert_includes File.read(summary), "incomplete trusted review installation (tooling/agent-snapshot.mjs)"
     end
   end
 
@@ -108,6 +118,70 @@ class ReviewWorkflowTest < Minitest::Test
     assert_equal({"action" => "*", "resource" => "*", "effect" => "deny"}, permissions.first)
     assert_equal %w[external_directory read], permissions.select { |p| p["effect"] == "allow" }.map { |p| p["action"] }.uniq.sort
     assert_equal "/workspace/*", permissions.find { |p| p["action"] == "external_directory" }.fetch("resource")
+  end
+
+  def test_review_installation_accepts_existing_skill_aliases_before_cli_build
+    with_review_installation do |dir, env, install|
+      aliases = Dir.glob(File.join(ROOT, ".claude/skills/*")).select { |path| File.symlink?(path) }
+      refute_empty aliases
+      aliases.each do |path|
+        name = File.basename(path)
+        FileUtils.mkdir_p(File.join(dir, "candidate/.agents/skills", name))
+        File.symlink(File.readlink(path), File.join(dir, "candidate/.claude/skills", name))
+      end
+      _, stderr, status = Open3.capture3(env, "bash", "-euo", "pipefail", "-c", install, chdir: dir)
+      assert status.success?, stderr
+      assert File.exist?(env.fetch("FIXTURE_BUILD")), "Safe snapshot must reach CLI build"
+      assert_equal "trusted criteria", File.read(File.join(dir, "review-input/REVIEW.md"))
+      aliases.each do |path|
+        assert_equal File.readlink(path), File.readlink(File.join(dir, "candidate/.claude/skills", File.basename(path)))
+      end
+    end
+  end
+
+  def test_review_installation_rejects_unsafe_links_and_missing_trusted_validator_before_cli_build
+    %w[public-alias outside-alias git-alias missing-validator].each do |kind|
+      with_review_installation do |dir, env, install|
+        case kind
+        when "public-alias"
+          File.symlink("../.env", File.join(dir, "candidate/frontend/alias"))
+        when "outside-alias"
+          File.symlink("/context", File.join(dir, "candidate/.claude/skills/example"))
+        when "git-alias"
+          File.symlink("../policy", File.join(dir, "candidate/.git"))
+        when "missing-validator"
+          FileUtils.rm(File.join(dir, "policy/tooling/agent-snapshot.mjs"))
+        end
+        # A malicious candidate validator must never be used as a fallback.
+        FileUtils.mkdir_p(File.join(dir, "candidate/tooling"))
+        File.write(File.join(dir, "candidate/tooling/agent-snapshot.mjs"), "process.exit(0)")
+        _, _, status = Open3.capture3(env, "bash", "-euo", "pipefail", "-c", install, chdir: dir)
+        refute status.success?, "Review installation accepted #{kind}"
+        refute File.exist?(env.fetch("FIXTURE_BUILD")), "Rejected snapshot must not reach CLI build"
+        refute File.exist?(File.join(dir, "review-input")), "Rejected snapshot must not prepare model input"
+      end
+    end
+  end
+
+  def with_review_installation
+    with_review_runner do |dir, policy, env, _pr, _routes, _run|
+      steps = workflow.fetch("jobs").fetch("review").fetch("steps")
+      install = steps.find { |step| step["id"] == "install" }
+      assert_equal "steps.gate.outputs.run == 'true'", install.fetch("if")
+      assert_operator steps.index(install), :<, steps.index(steps.find { |step| step["id"] == "model" })
+      %w[.claude/skills frontend].each { |path| FileUtils.mkdir_p(File.join(dir, "candidate", path)) }
+      File.write(File.join(dir, "candidate/.env"), "synthetic fixture")
+      File.write(File.join(policy, "REVIEW.md"), "trusted criteria")
+      File.write(File.join(policy, "review-context.json"), "{}")
+      FileUtils.cp(File.join(ROOT, "tooling/agent-snapshot.mjs"), File.join(policy, "tooling"))
+      env["FIXTURE_BUILD"] = File.join(dir, "cli-build")
+      File.write(File.join(dir, "bin/docker"), <<~RUBY)
+        #!#{RbConfig.ruby}
+        File.write(ENV.fetch("FIXTURE_BUILD"), ARGV.join(" "))
+      RUBY
+      File.chmod(0o700, File.join(dir, "bin/docker"))
+      yield dir, env, install.fetch("run")
+    end
   end
 
   def test_shared_budget_and_no_automatic_cascade_are_enforced_before_model
