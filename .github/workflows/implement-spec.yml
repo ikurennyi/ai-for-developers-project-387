@@ -91,7 +91,7 @@ jobs:
             --env HOME=/tmp --env OPENCODE_API_KEY \
             --mount "type=bind,src=$GITHUB_WORKSPACE/candidate,dst=/workspace" \
             --mount "type=bind,src=$AGENT_OUTPUT,dst=/context,readonly" \
-            agent-runner --model opencode/glm-5.3-flash-free --agent github-implementer \
+            agent-runner --model opencode/deepseek-v4.1-flash-free --agent github-implementer \
             "Read /context/context.json. Implement the approved graph or the current human PR fix in /workspace. Complete an internal standards and specification review before the final report. Independent checks and separately authorized publication are runner duties." \
             > "$AGENT_OUTPUT/report.md"; then
             echo "verdict=success" >> "$GITHUB_OUTPUT"

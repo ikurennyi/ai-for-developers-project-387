@@ -105,7 +105,7 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       REVIEW_PR: ${{ github.event.pull_request.number || inputs.pr }}
-      OPENCODE_MODEL: opencode/glm-5.3-flash-free
+      OPENCODE_MODEL: opencode/deepseek-v4.1-flash-free
     steps:
       - name: Check out trusted policy
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
