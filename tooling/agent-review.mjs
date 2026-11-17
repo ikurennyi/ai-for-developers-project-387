@@ -2,6 +2,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { execFileSync } from "node:child_process"
 import { github, collectBudget, trustedPullRequest } from "./agent-policy.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
@@ -135,19 +136,23 @@ async function publish() {
   let body
   if (verdict === "allow") {
     const result = path.join(process.env.RUNNER_TEMP, "agent-review.md")
-    if (process.env.MODEL_OUTCOME === "success" && fs.existsSync(result)) {
+    if (process.env.MODEL_STARTED !== "true" ||
+        process.env.CONTEXT_OUTCOME !== "success" || process.env.INSTALL_OUTCOME !== "success") {
+      verdict = "infra"
+    } else if (process.env.MODEL_VERDICT === "timeout") {
+      verdict = "timeout"
+    } else if (process.env.MODEL_VERDICT === "reviewed" &&
+        process.env.MODEL_OUTCOME === "success" && fs.existsSync(result)) {
       body = fs.readFileSync(result, "utf8").trim()
     }
-    if (!body) verdict = "agent_failed"
+    if (!body && verdict === "allow") verdict = "agent_failed"
   }
   body = body || `No model review produced. Verdict: **${verdict}**. Human action required.`
   // Keep GitHub's comment limit explicit rather than silently cutting findings.
   if (body.length > 60000) body = "No publishable model review. Verdict: **agent_failed** (output exceeds comment limit)."
-  await github(`${prefix}/issues/${number}/comments`, {
-    method: "POST", body: JSON.stringify({
-      body: `<!-- independent-agent-review -->\nIndependent review at \`${state.sha}\`\n\n${body}\n\n[Actions logs](${logURL}). Review never authorizes fixes or another run.`
-    }),
-    headers: { "Content-Type": "application/json" }
+  execFileSync("gh", ["pr", "comment", number, "--repo", repo, "--body-file", "-"], {
+    input: `<!-- independent-agent-review -->\nIndependent review at \`${state.sha}\`\n\n${body}\n\n[Actions logs](${logURL}). Review never authorizes fixes or another run.`,
+    encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], timeout: 30000
   })
 }
 

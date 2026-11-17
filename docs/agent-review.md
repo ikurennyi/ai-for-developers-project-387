@@ -24,7 +24,8 @@ The shared `tooling/agent-policy.mjs` owns trust and Actions-history budgeting;
 human authors and `github-actions[bot]` are eligible. Forks are rejected before
 model installation/credentials. No blanket bot exclusion is used.
 
-A separate publisher posts one PR comment identifying the SHA and Actions logs.
+A separate trusted publisher executes `gh pr comment` with argument-array
+invocation and the comment body on stdin, identifying the SHA and Actions logs.
 It rechecks current trust and head SHA first; cancelled or stale runs do not
 publish. Publication uses GITHUB_TOKEN with pull-requests write, alongside
 contents/issues/actions/checks/statuses read. No OIDC, separate App or
@@ -42,8 +43,14 @@ Exhaustion posts `limit_exhausted`; unprovable history posts `infra`.
 
 Concurrency is distinct from the interactive queue: one review per PR with
 `cancel-in-progress: true`, a 15-minute job timeout and a final SHA check.
-Different PRs have independent groups. A failed/empty model result reports
-`agent_failed`. GitHub cancellation/outer timeout can prevent the publisher
+The model command has its own ten-minute `timeout` (TERM, then KILL after twenty
+seconds), leaving time for the always-run publisher rather than relying on the
+outer job timeout.
+Different PRs have independent groups. Missing credentials/CLI or failed
+context/install preparation report `infra`; timeout exit 124 reports `timeout`;
+other failed/empty model results report `agent_failed`. Explicit model-started
+and verdict outputs prevent a setup failure from masquerading as a model failure.
+GitHub cancellation/outer timeout can prevent the publisher
 itself from running; inspect the Actions conclusion/logs in that case.
 
 GITHUB_TOKEN-created PRs/pushes do **not** automatically start follow-up Actions.
@@ -64,6 +71,11 @@ artifacts; pending/missing evidence is not green evidence.
 `mise exec -- ruby test/review_workflow_test.rb` checks the workflow boundary:
 events/manual authorization, checkout trust, least privileges, model isolation,
 criteria, shared budget use, no cascade, and stale-head publication protection.
+It also runs the real adapter/shared policy against fixture GitHub HTTP responses
+and a recording `gh` executable, plus the actual model-step shell with fixture
+CLI/timeout commands. These cover automation trust, rejected forks/dispatches,
+attempt exhaustion/history failure, context gaps, verdicts, and stale/cancelled
+publication suppression without network or model credentials.
 The main integration wires this suite into `mise run ci:validate`.
 Live approval/dispatch, automation-authored PR review, cancellation on push and
 secret provisioning remain external acceptance steps, not local test claims.
