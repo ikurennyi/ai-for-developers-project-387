@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0](https://github.com/ikurennyi/ai-for-developers-project-387/compare/v0.5.0...v0.6.0) (2026-11-17)
+
+
+### Features
+
+* add GitHub issue triage workflow ([#9](https://github.com/ikurennyi/ai-for-developers-project-387/issues/9)) ([da69719](https://github.com/ikurennyi/ai-for-developers-project-387/commit/da697198270fdd739fc17535ad60f1cbddc56433))
+* add GitHub issue triage workflow ([#9](https://github.com/ikurennyi/ai-for-developers-project-387/issues/9)) ([ab6f98d](https://github.com/ikurennyi/ai-for-developers-project-387/commit/ab6f98d8ffd4752eca9f0de23b8d000411ff2538))
+
+
+### Bug Fixes
+
+* require explicit agent stage requests ([#15](https://github.com/ikurennyi/ai-for-developers-project-387/issues/15)) ([0654a39](https://github.com/ikurennyi/ai-for-developers-project-387/commit/0654a39ea89b92fd205f196db6f550c841063681))
+* require explicit agent stage requests ([#15](https://github.com/ikurennyi/ai-for-developers-project-387/issues/15)) ([9693703](https://github.com/ikurennyi/ai-for-developers-project-387/commit/96937039b7fa9c28662690cb4a613216303e2edc))
+
 ## [0.5.0](https://github.com/ikurennyi/ai-for-developers-project-387/compare/v0.4.0...v0.5.0) (2026-11-17)
 
 
