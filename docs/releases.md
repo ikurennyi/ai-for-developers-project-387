@@ -52,26 +52,30 @@ release PR has no real application checks.
 An authorized maintainer must:
 
 1. Create a **fine-grained personal access token**, preferably for a dedicated
+
    automation account. Select only `ikurennyi/ai-for-developers-project-387`,
-   set a short practical expiration, and grant repository **Contents: read/write**,
-   **Pull requests: read/write**, and **Issues: read/write** (release lifecycle
-   labels). Metadata read is implicit. Do not grant Actions, Workflows,
-   administration, organization-wide or all-repositories access. No classic
-   broad `repo` token is needed. Obtain organization approval if required.
+    set a short practical expiration, and grant repository **Contents: read/write**,
+    **Pull requests: read/write**, and **Issues: read/write** (release lifecycle
+    labels). Metadata read is implicit. Do not grant Actions, Workflows,
+    administration, organization-wide or all-repositories access. No classic
+    broad `repo` token is needed. Obtain organization approval if required.
 2. Store its value as the repository Actions secret `RELEASE_PLEASE_TOKEN`
+
    through Settings → Secrets and variables → Actions → New repository secret.
-   Never paste a token into an issue, command argument, log, source file,
-   `mise.local.toml`, or committed `.env`. Rotate the secret before expiry;
-   revoke the old token after the replacement is verified.
+    Never paste a token into an issue, command argument, log, source file,
+    `mise.local.toml`, or committed `.env`. Rotate the secret before expiry;
+    revoke the old token after the replacement is verified.
 3. Check repository/organization Actions policy permits the SHA-pinned
+
    `googleapis/release-please-action` and PR creation. Where required, enable
-   “Allow GitHub Actions to create and approve pull requests”. This does not
-   authorize the bot to approve or merge releases; keep human review.
+    “Allow GitHub Actions to create and approve pull requests”. This does not
+    authorize the bot to approve or merge releases; keep human review.
 4. Require `Application checks / check` on `main`, with normal human review.
+
    Verify the actual check name after the first authorized run. Do not give
-   the token/account branch-protection bypass or relax checks to merge a release.
-   Ensure tag rules permit that account to create new `v*` release tags without
-   granting force-update/deletion rights.
+    the token/account branch-protection bypass or relax checks to merge a release.
+    Ensure tag rules permit that account to create new `v*` release tags without
+    granting force-update/deletion rights.
 
 The workflow's own `GITHUB_TOKEN` has `permissions: {}`: all release API writes
 use the separately scoped token. There is no checkout, shell interpolation of
@@ -84,25 +88,30 @@ change; do not substitute the built-in token.
 ## Prepare, review and release
 
 1. After separately authorized publication/merge to `main` and provisioning,
+
    a push with releasable Conventional Commits creates or updates the release
-   PR. New commits to `main` update the same pending PR.
+    PR. New commits to `main` update the same pending PR.
 2. Confirm `Application checks / check` actually runs for the bot-created PR
+
    **and subsequent updates**, including commitlint, workflow validation and
-   `mise run check`. The existing `pull_request` workflow has no path or actor
-   exclusions; using the separate token allows its events to trigger normally.
-   Never treat a missing, skipped or stale check as passing.
+    `mise run check`. The existing `pull_request` workflow has no path or actor
+    exclusions; using the separate token allows its events to trigger normally.
+    Never treat a missing, skipped or stale check as passing.
 3. Review version, breaking changes, changelog links, and the diff. Expected
+
    release changes are `version.txt`, `CHANGELOG.md` and the manifest, not npm
-   manifests or lockfiles. Preserve the Conventional Commit release title and
-   release-please's PR body/`autorelease: pending` label; these identify the
-   merged release. Do not manually retag or alter the manifest to force a retry.
+    manifests or lockfiles. Preserve the Conventional Commit release title and
+    release-please's PR body/`autorelease: pending` label; these identify the
+    merged release. Do not manually retag or alter the manifest to force a retry.
 4. Human approval and merge of the release PR is the release decision. Its push
+
    to `main` makes release-please create the matching Git tag and published
-   GitHub Release, then mark the PR `autorelease: tagged`. No deployment occurs.
+    GitHub Release, then mark the PR `autorelease: tagged`. No deployment occurs.
 5. Verify the release workflow succeeded, tag/version/changelog agree, the tag
+
    points at the merged release commit, and the GitHub Release contains the
-   expected notes. Record PR, Actions run, tag and Release URLs as external
-   evidence. Check the `main` application run independently.
+    expected notes. Record PR, Actions run, tag and Release URLs as external
+    evidence. Check the `main` application run independently.
 
 If credentials expire or the API fails after merge, restore/rotate credentials
 and re-run that failed `main` workflow run after inspecting existing tags and
@@ -136,21 +145,21 @@ These run in existing application CI too. The protected
 Local verification on 2026-11-13, macOS arm64:
 
 - Red/green: missing config, then missing release workflow caused the new tests
-  to fail; both passed after implementation (2 tests, 29 assertions).
+to fail; both passed after implementation (2 tests, 29 assertions).
 - `mise run ci:validate`: both workflows pass actionlint; existing workflow tests
-  pass (2 tests, 23 assertions).
+pass (2 tests, 23 assertions).
 - Configuration and manifest also pass the actual release-please **17.3.0**
-  exported JSON schemas using Ajv **8.17.1** / ajv-formats **3.0.1**; an unknown
-  top-level option is rejected. The pinned v4.4.1 action bundles release-please
-  17.3.0. Dependencies for this probe were installed in a separate temporary
-  directory, not any repository npm project. Seven version examples using
-  upstream commit parsing/versioning pass: the six table cells above plus a
-  `BREAKING CHANGE:` footer at 0.1.0 → 0.2.0. No GitHub API write was involved.
+exported JSON schemas using Ajv **8.17.1** / ajv-formats **3.0.1**; an unknown
+top-level option is rejected. The pinned v4.4.1 action bundles release-please
+17.3.0. Dependencies for this probe were installed in a separate temporary
+directory, not any repository npm project. Seven version examples using
+upstream commit parsing/versioning pass: the six table cells above plus a
+`BREAKING CHANGE:` footer at 0.1.0 → 0.2.0. No GitHub API write was involved.
 - `mise run check` passes all nine gates: 9 RSpec examples against real isolated
-  PostgreSQL, 2 jsdom tests, 1 real Chromium test, contract regeneration/lint/types,
-  application lint/format/types and production build.
+PostgreSQL, 2 jsdom tests, 1 real Chromium test, contract regeneration/lint/types,
+application lint/format/types and production build.
 - Frozen installation succeeds. The existing frontend dependency audit reports
-  13 moderate advisories; no audit fix or dependency/lockfile change was made.
+13 moderate advisories; no audit fix or dependency/lockfile change was made.
 
 **External behavior remains unverified and blocked on maintainer provisioning
 and separately authorized push/PR/merge.** No token was provisioned, repository

@@ -90,6 +90,15 @@ class CommitRangesTest < Minitest::Test
     refute status.success?, out + err
   end
 
+  def test_configured_commitlint_baseline_exists_in_repository_history
+    baseline = File.read(File.join(ROOT, "tooling/commitlint-baseline")).strip
+    _out, err, status = Open3.capture3(
+      "git", "cat-file", "-e", "#{baseline}^{commit}", chdir: ROOT
+    )
+
+    assert status.success?, "Configured commitlint baseline is not in this repository: #{err}"
+  end
+
   def test_force_push_checks_new_head_without_requiring_old_head_ancestry
     before = commit("old rewritten invalid commit")
     git("checkout", "--quiet", "--detach", @baseline)
