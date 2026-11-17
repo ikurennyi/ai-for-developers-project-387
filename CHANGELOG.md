@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/ikurennyi/ai-for-developers-project-387/compare/v0.3.0...v0.4.0) (2026-11-17)
+
+
+### Features
+
+* copy calendar app into project 387 ([#1](https://github.com/ikurennyi/ai-for-developers-project-387/issues/1)) ([ded1503](https://github.com/ikurennyi/ai-for-developers-project-387/commit/ded1503c405e964c8fabe5d7d6dd2f832277376b))
+
+
+### Bug Fixes
+
+* use repository commit baseline for lint ([#1](https://github.com/ikurennyi/ai-for-developers-project-387/issues/1)) ([91efbd7](https://github.com/ikurennyi/ai-for-developers-project-387/commit/91efbd78878963353929615432405ef8c199d63e))
+
 ## [0.3.0](https://github.com/ikurennyi/ai-for-developers-project-386/compare/v0.2.0...v0.3.0) (2026-11-14)
 
 
