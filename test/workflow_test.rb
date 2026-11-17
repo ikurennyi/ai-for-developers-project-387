@@ -79,8 +79,11 @@ class WorkflowTest < Minitest::Test
     assert_match(/\A[^\s]+\/[^\s]+\z/, job.fetch("env").fetch("OPENCODE_MODEL"))
     assert_includes model.fetch("run"), '--model "$OPENCODE_MODEL"'
     assert_includes model.fetch("run"), "--archived"
-    assert_equal %w[GH_TOKEN OPENCODE_API_KEY], model.fetch("env").keys.sort
-    assert_includes model.fetch("run"), "--agent github-issues"
+    assert_equal %w[GH_TOKEN OPENCODE_AGENT OPENCODE_API_KEY REQUESTED_STAGE], model.fetch("env").keys.sort
+    assert_equal "${{ steps.command.outputs.agent }}", model.fetch("env").fetch("OPENCODE_AGENT")
+    assert_equal "${{ steps.command.outputs.stage }}", model.fetch("env").fetch("REQUESTED_STAGE")
+    assert_equal "${{ github.event.issue.pull_request != null }}", command.fetch("env").fetch("IS_PULL_REQUEST")
+    assert_includes model.fetch("run"), '--agent "$OPENCODE_AGENT"'
 
     context = steps.find { |step| step["name"] == "Collect issue and discussion context" }
     reply = steps.find { |step| step["name"] == "Reply to the discussion" }
@@ -167,13 +170,14 @@ class WorkflowTest < Minitest::Test
           "bash", "-euo", "pipefail", "-c", command.fetch("run")
         )
         assert status.success?, stderr
-        assert_equal "run=#{expected}\n", File.read(file.path)
+        outputs = File.read(file.path).lines.to_h { |line| line.strip.split("=", 2) }
+        assert_equal expected.to_s, outputs.fetch("run")
       end
     end
   end
 
   def test_agent_allowlists_deny_code_changes_and_unsafe_gh_options
-    %w[github-issues github-triage].each do |id|
+    %w[github-issues github-triage github-discussion].each do |id|
       assert_equal "allow", permission(id, "shell", "gh issue view 9 --json body,comments")
       assert_equal "allow", permission(id, "shell", "gh issue list --state all")
       assert_equal "allow", permission(id, "skill", "to-spec")
@@ -198,6 +202,7 @@ class WorkflowTest < Minitest::Test
     ].each do |command|
       assert_equal "allow", permission("github-issues", "shell", command)
       assert_equal "deny", permission("github-triage", "shell", command)
+      assert_equal "deny", permission("github-discussion", "shell", command)
     end
     [
       "gh issue create --body-file /secret", "gh issue comment 9 -F/secret",
@@ -207,7 +212,96 @@ class WorkflowTest < Minitest::Test
     ].each { |command| assert_equal "deny", permission("github-issues", "shell", command), command }
   end
 
+  def test_clarification_does_not_authorize_publication_even_after_bot_recommendation
+    workflow = YAML.safe_load_file(File.join(ROOT, ".github/workflows/opencode.yml"))
+    command = workflow.fetch("jobs").fetch("opencode").fetch("steps").find { |step| step["id"] == "command" }
+    Tempfile.create("opencode-route") do |file|
+      _, stderr, status = Open3.capture3(
+        {
+          "COMMENT_BODY" => "/oc 1 - точка, 2 - даты/дни пока не трогаем, для доступных интервалов уберём текст Available.",
+          "DISCUSSION_CONTEXT" => "Previous bot: /oc запусти скилл to-spec",
+          "GITHUB_EVENT_NAME" => "issue_comment",
+          "IS_PULL_REQUEST" => "false",
+          "GITHUB_OUTPUT" => file.path
+        },
+        "bash", "-euo", "pipefail", "-c", command.fetch("run")
+      )
+      assert status.success?, stderr
+      outputs = File.read(file.path).lines.to_h { |line| line.strip.split("=", 2) }
+      assert_equal "true", outputs.fetch("run")
+      assert_equal "github-discussion", outputs["agent"], "Clarification must not receive publication tools"
+      assert_equal "discussion", outputs["stage"]
+    end
+  end
+
+  def test_only_explicit_whole_comment_skill_requests_select_publication_tools
+    {
+      "/oc to-spec" => "to-spec",
+      "/oc запусти скилл to-spec по обсуждению этого issue" => "to-spec",
+      "/oc продолжи to-spec с учётом ответов" => "to-spec",
+      "/OPENCODE run skill to-spec" => "to-spec",
+      "/oc to-tickets #13" => "to-tickets",
+      "/oc запусти скилл to-tickets по спецификации #13" => "to-tickets",
+      "/oc continue to-tickets" => "to-tickets",
+      "/oc не запускай to-spec" => "discussion",
+      "/oc объясни, что такое to-spec" => "discussion",
+      "/oc Спецификация согласована" => "discussion",
+      "/oc продолжи" => "discussion",
+      "/oc to-spec и to-tickets" => "discussion",
+      "/oc to-spec\nпока не публикуй" => "discussion",
+      "/oc to-tickets #0" => "discussion",
+      "> /oc to-spec" => "discussion",
+      "```\n/oc to-spec\n```" => "discussion",
+      "Пример команды: /oc to-spec" => "discussion"
+    }.each do |body, expected|
+      outputs = route(body)
+      assert_equal expected, outputs.fetch("stage"), body
+      expected_agent = expected == "discussion" ? "github-discussion" : "github-issues"
+      assert_equal expected_agent, outputs.fetch("agent"), body
+      allowed = expected == "discussion" ? "deny" : "allow"
+      assert_equal allowed, permission(outputs.fetch("agent"), "shell", 'gh issue create --title Spec --body Scope'), body
+    end
+    assert_equal "discussion", route("/oc to-spec", "GITHUB_EVENT_NAME" => "pull_request_review_comment").fetch("stage")
+    assert_equal "discussion", route("/oc to-spec", "IS_PULL_REQUEST" => "true").fetch("stage")
+    assert_equal "discussion", route("/oc to-spec", "IS_PULL_REQUEST" => "").fetch("stage")
+  end
+
+  def test_help_calls_are_separate_and_helper_shell_commands_stay_denied
+    ["gh issue create --help", "gh issue edit --help"].each do |command|
+      assert_equal "allow", permission("github-issues", "shell", command)
+      assert_equal "deny", permission("github-discussion", "shell", command)
+    end
+    %w[github-issues github-triage github-discussion].each do |id|
+      ["grep -iE parent", "echo ---", "cat file", "jq . file", "sed -n 1p file"].each do |command|
+        assert_equal "deny", permission(id, "shell", command)
+      end
+      source = File.read(File.join(ROOT, ".opencode/agents", "#{id}.md"))
+      assert_includes source, "docs/agents/github-shell.md"
+    end
+    instructions = File.read(File.join(ROOT, "docs/agents/github-shell.md"))
+    assert_includes instructions, "one allowed `gh` command per shell tool call"
+    assert_includes instructions, "After `Permission denied`"
+  end
+
   private
+
+  def route(body, env = {})
+    workflow = YAML.safe_load_file(File.join(ROOT, ".github/workflows/opencode.yml"))
+    command = workflow.fetch("jobs").fetch("opencode").fetch("steps").find { |step| step["id"] == "command" }
+    Tempfile.create("opencode-route") do |file|
+      _, stderr, status = Open3.capture3(
+        {
+          "COMMENT_BODY" => body,
+          "GITHUB_EVENT_NAME" => "issue_comment",
+          "IS_PULL_REQUEST" => "false",
+          "GITHUB_OUTPUT" => file.path
+        }.merge(env),
+        "bash", "-euo", "pipefail", "-c", command.fetch("run")
+      )
+      assert status.success?, stderr
+      File.read(file.path).lines.to_h { |line| line.strip.split("=", 2) }
+    end
+  end
 
   def agent(id)
     source = File.read(File.join(ROOT, ".opencode/agents", "#{id}.md"))
