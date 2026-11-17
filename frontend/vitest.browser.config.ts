@@ -1,14 +1,25 @@
 import { defineConfig, mergeConfig } from 'vitest/config'
 import { playwright } from '@vitest/browser-playwright'
 import viteConfig from './vite.config.ts'
+import { searchForWorkspaceRoot } from 'vite'
+
+const evidenceDir =
+  process.env.SMOKE_EVIDENCE_ENABLED === '1' && process.env.SMOKE_RUNTIME_DIR
+    ? `${process.env.SMOKE_RUNTIME_DIR}/browser-evidence/${process.env.SMOKE_EVIDENCE_LABEL}`
+    : undefined
 
 export default mergeConfig(
   viteConfig,
   defineConfig({
+    server: evidenceDir
+      ? { fs: { allow: [searchForWorkspaceRoot(process.cwd()), evidenceDir] } }
+      : undefined,
     cacheDir: process.env.SMOKE_RUNTIME_DIR
       ? `${process.env.SMOKE_RUNTIME_DIR}/vite-cache`
       : undefined,
     test: {
+      reporters: evidenceDir ? ['default', 'json'] : ['default'],
+      outputFile: evidenceDir ? `${evidenceDir}/results.json` : undefined,
       provide: {
         emptyMeetingTypes: process.env.SMOKE_EMPTY_MEETING_TYPES === '1',
         occupiedCalendar: process.env.SMOKE_OCCUPIED_CALENDAR === '1',
@@ -27,7 +38,16 @@ export default mergeConfig(
           port: Number(process.env.SMOKE_BROWSER_PORT || 63315),
           strictPort: true,
         },
-        screenshotFailures: false,
+        screenshotFailures: Boolean(evidenceDir),
+        screenshotDirectory: evidenceDir ? `${evidenceDir}/screenshots` : undefined,
+        trace: evidenceDir
+          ? {
+              mode: 'on',
+              tracesDir: `${evidenceDir}/traces`,
+              screenshots: true,
+              snapshots: true,
+            }
+          : 'off',
         provider: playwright({ contextOptions: { timezoneId: 'America/Los_Angeles' } }),
         instances: [{ browser: 'chromium' }],
       },

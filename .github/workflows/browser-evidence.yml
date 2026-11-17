@@ -1,0 +1,73 @@
+name: PR head browser evidence
+
+# GITHUB_TOKEN-created PRs/pushes do not cascade into this workflow.
+# The owner must confirm a run/re-run; compare its recorded SHA to current head.
+"on":
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: browser-evidence-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    services:
+      postgres:
+        image: postgres:18.3-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-ephemeral
+          POSTGRES_DB: scaffold_ci
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U ci -d scaffold_ci"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Record and verify actual checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p browser-evidence
+          actual="$(git rev-parse HEAD)"
+          printf '%s\n' "$actual" > browser-evidence/actual-sha.txt
+          printf '%s\n' "$EXPECTED_SHA" > browser-evidence/expected-sha.txt
+          test "$actual" = "$EXPECTED_SHA"
+      - name: Install native Ruby and PostgreSQL build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential autoconf libssl-dev libyaml-dev zlib1g-dev libreadline-dev libffi-dev libgmp-dev libpq-dev pkg-config
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          version: 2026.11.6
+          cache: false
+      - name: Install locked dependencies
+        run: |
+          mise exec -- gem install bundler -v 4.0.22 --no-document
+          mise run install
+      - name: Install pinned Chromium and system dependencies
+        run: mise exec -- node frontend/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Run isolated browser scenarios
+        env:
+          CI: "true"
+          DATABASE_URL: postgresql://ci:ci-ephemeral@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/scaffold_ci
+          SMOKE_EVIDENCE_DIR: ${{ github.workspace }}/browser-evidence
+        run: mise run smoke
+      - name: Upload browser evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-evidence-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: browser-evidence/
+          if-no-files-found: error
+          retention-days: 14

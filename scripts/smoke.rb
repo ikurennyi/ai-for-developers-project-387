@@ -14,18 +14,20 @@ class Smoke
   def initialize(mode)
     raise "unknown smoke option" unless [nil, "--backend-test", "--fail-after-ready", "--probe-readiness-timeout", "--probe-browser-failure"].include?(mode)
     @mode = mode
-    @directory = Dir.mktmpdir("scaffold-smoke-")
+    @directory = File.realpath(Dir.mktmpdir("scaffold-smoke-"))
     @id = "smoke-#{SecureRandom.hex(10)}"
     @database = @id.tr("-", "_")
     @children, @active, @logs = [], [], []
     @env = { "RAILS_ENV" => "test", "DISABLE_BOOTSNAP" => "1", "TMPDIR" => @directory,
       "RAILS_LOG_TO_STDOUT" => "1", "SECRET_KEY_BASE" => SecureRandom.hex(64) }
+    @evidence = File.expand_path(ENV["SMOKE_EVIDENCE_DIR"]) if ENV["SMOKE_EVIDENCE_DIR"]
+    @env["SMOKE_EVIDENCE_ENABLED"] = @evidence ? "1" : nil
   end
 
   def start(label, *command, directory: ROOT, env: {})
     path = File.join(@directory, "#{label}.log")
     @logs << path
-    pid = Process.spawn(@env.merge(env), *command, chdir: directory, out: path, err: [:child, :out], pgroup: true)
+    pid = Process.spawn(@env.merge("SMOKE_EVIDENCE_LABEL" => label).merge(env), *command, chdir: directory, out: path, err: [:child, :out], pgroup: true)
     @children << pid
     @active << pid
     pid
@@ -288,7 +290,28 @@ class Smoke
       end
     end
     puts "SMOKE_RESOURCES #{JSON.generate(container: @service_url ? nil : @id, database: @database, pids: @children, directory: @directory)}"
-    FileUtils.remove_entry(@directory) if File.directory?(@directory)
+    begin
+      export_evidence(failed || $!) if @evidence
+    ensure
+      FileUtils.remove_entry(@directory) if File.directory?(@directory)
+    end
+  end
+
+  def export_evidence(error)
+    FileUtils.mkdir_p(File.join(@evidence, "logs"))
+    @logs.uniq.each do |path|
+      next unless File.file?(path)
+      text = File.read(path)
+      text = text.gsub(@service_url, "[REDACTED]") if @service_url
+      text = text.gsub(@env["DATABASE_URL"], "[REDACTED]") if @env["DATABASE_URL"]
+      text = text.gsub(@password, "[REDACTED]") if @password && !@password.empty?
+      File.write(File.join(@evidence, "logs", File.basename(path)), text)
+    end
+    browser = File.join(@directory, "browser-evidence")
+    FileUtils.cp_r(browser, File.join(@evidence, "browser")) if File.directory?(browser)
+    File.write(File.join(@evidence, "result.json"), JSON.pretty_generate(
+      status: error ? "failed" : "passed", error: error&.class&.name, database: @database
+    ))
   end
 end
 
