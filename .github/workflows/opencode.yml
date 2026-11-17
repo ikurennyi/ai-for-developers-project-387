@@ -43,7 +43,9 @@ jobs:
           node <<'NODE'
           const fs = require("node:fs")
           const body = process.env.COMMENT_BODY ?? ""
-          const run = /(^|\s)\/(?:oc|opencode)(?=\s|$)/im.test(body)
+          // Executor owns explicit implementation/fix commands; never call two models.
+          const executor = /^\/(?:oc|opencode) (?:implement-spec(?:\s|$)|fix(?:\n|$))/u.test(body.trim())
+          const run = !executor && /(^|\s)\/(?:oc|opencode)(?=\s|$)/im.test(body)
           // Publication requires a whole-comment command, never a skill mention in discussion.
           const request = body.trim().match(/^\/(?:oc|opencode)[ \t]+(?:(?:запусти|продолжи)[ \t]+(?:скилл[ \t]+)?|(?:run|continue)[ \t]+(?:skill[ \t]+)?)?(to-spec|to-tickets)(?:[ \t]+(?:#[1-9]\d*|по обсуждению этого issue|по спецификации #[1-9]\d*|с уч[её]том ответов))?$/iu)
           const canPublish = process.env.GITHUB_EVENT_NAME === "issue_comment" &&

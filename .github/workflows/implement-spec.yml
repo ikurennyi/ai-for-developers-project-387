@@ -1,14 +1,4 @@
 name: Implement approved specification
-run-name: >-
-  ${{ (github.event.comment.body == '/oc implement-spec' ||
-       github.event.comment.body == '/opencode implement-spec' ||
-       github.event.comment.body == '/oc fix' ||
-       github.event.comment.body == '/opencode fix' ||
-       github.event.comment.body == '/oc implement-fixes' ||
-       github.event.comment.body == '/opencode implement-fixes') &&
-       format('agent-budget:pr-{0}:interactive',
-       github.event.issue.number || github.event.pull_request.number) ||
-       format('ignored-agent-command-{0}', github.run_id) }}
 
 "on":
   issue_comment:
@@ -19,222 +9,201 @@ run-name: >-
 permissions: {}
 
 jobs:
-  implement:
+  route:
     if: >-
       github.event.comment.user.type != 'Bot' &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 3
+    permissions:
+      contents: read
     outputs:
-      command: ${{ steps.command.outputs.run }}
-      decision: ${{ steps.budget.outputs.decision }}
-      verdict: ${{ steps.model.outputs.verdict }}
+      run: ${{ steps.route.outputs.run }}
+      scope: ${{ steps.route.outputs.scope }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - id: route
+        run: node tooling/agent-control.mjs route
+
+  implement:
+    name: agent-admission:${{ needs.route.outputs.scope }}:interactive
+    needs: route
+    if: needs.route.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     concurrency:
-      group: implement-spec-${{ github.event.issue.number || github.event.pull_request.number }}
+      group: implement-spec-${{ needs.route.outputs.scope }}
       cancel-in-progress: false
+      queue: max
     permissions:
       contents: read
       issues: read
       pull-requests: read
       actions: read
-    env:
-      GH_REPO: ${{ github.repository }}
-      SOURCE_ISSUE: "17"
-      OPENCODE_MODEL: opencode/glm-5.3-flash-free
+    outputs:
+      decision: ${{ steps.gate.outputs.decision }}
+      sha: ${{ steps.gate.outputs.sha }}
+      verdict: ${{ steps.model.outputs.verdict }}
     steps:
-      - name: Check out trusted default branch
+      - name: Check out trusted policy, never PR configuration
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 1
           persist-credentials: false
-
-      - name: Route an explicit implementation command
-        id: command
-        env:
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
-          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-        run: |
-          node <<'NODE'
-          const fs = require("node:fs")
-          const body = (process.env.COMMENT_BODY ?? "").trim()
-          const isPR = process.env.GITHUB_EVENT_NAME === "pull_request_review_comment" ||
-            process.env.IS_PULL_REQUEST === "true"
-          const accepted = isPR
-            ? /^\/(?:oc|opencode)[ \t]+(?:fix|implement-fixes)$/iu.test(body)
-            : process.env.GITHUB_EVENT_NAME === "issue_comment" &&
-              process.env.IS_PULL_REQUEST === "false" &&
-              process.env.ISSUE_NUMBER === process.env.SOURCE_ISSUE &&
-              /^\/(?:oc|opencode)[ \t]+implement-spec$/iu.test(body)
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `run=${accepted}\n`)
-          NODE
-
-      - name: Install OpenCode CLI
-        if: steps.command.outputs.run == 'true'
-        run: npm install --global @opencode/cli@2.3.0
-
-      - name: Validate same-repository PR and capture its exact head
-        if: steps.command.outputs.run == 'true' && (github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null)
+          path: policy
+      - name: Verify request, approval, task graph, trust and complete Actions history
+        id: gate
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: node policy/tooling/agent-control.mjs prepare
+      - name: Fetch exact candidate SHA without exposing it to model configuration discovery
+        if: steps.gate.outputs.decision == 'allow'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.gate.outputs.sha }}
+          persist-credentials: false
+          path: candidate
+      - name: Reject symlink snapshots before model access
+        if: steps.gate.outputs.decision == 'allow'
         run: |
           set -euo pipefail
-          gh api "repos/$GH_REPO/pulls/$ISSUE_NUMBER" > "$RUNNER_TEMP/pull-request.json"
-          jq -e --arg repo "$GH_REPO" '
-            .base.repo.full_name == $repo and
-            .head.repo.full_name == $repo and
-            (.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR")
-          ' "$RUNNER_TEMP/pull-request.json" > /dev/null
-          head_sha="$(jq -r '.head.sha' "$RUNNER_TEMP/pull-request.json")"
-          git fetch --no-tags "https://github.com/$GH_REPO.git" "$head_sha"
-          git checkout --detach FETCH_HEAD
-          test "$(git rev-parse HEAD)" = "$head_sha"
-          echo "$head_sha" > "$RUNNER_TEMP/head-sha"
-
-      - name: Collect complete inline review context
-        if: steps.command.outputs.run == 'true' && (github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          gh api --paginate "repos/$GH_REPO/pulls/$ISSUE_NUMBER/comments?per_page=100" \
-            --jq '.[] | {id,body,path,line,original_line,side,diff_hunk,commit_id}' \
-            > "$RUNNER_TEMP/review-context.jsonl"
-          gh api "repos/$GH_REPO/pulls/$ISSUE_NUMBER" --jq '{number,head:.head.sha,base:.base.sha,author:.user.login,title,body}' \
-            > "$RUNNER_TEMP/pull-request-context.json"
-
-      - name: Collect immutable run history and check budget
-        if: steps.command.outputs.run == 'true'
-        id: budget
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          pr_number="${{ github.event.issue.number || github.event.pull_request.number }}"
-          gh api --paginate "repos/$GH_REPO/actions/runs?per_page=100" \
-            --jq '.workflow_runs[] | select(.display_title | startswith("agent-budget:")) | {display_title,run_attempt}' \
-            > "$RUNNER_TEMP/agent-runs.jsonl"
-          node tooling/agent-budget.mjs interactive "$pr_number" \
-            < "$RUNNER_TEMP/agent-runs.jsonl" > "$RUNNER_TEMP/agent-budget.json"
-          decision="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1])).decision)' "$RUNNER_TEMP/agent-budget.json")"
-          echo "decision=$decision" >> "$GITHUB_OUTPUT"
-
-      - name: Verify genuine owner approval and open blockers
-        if: steps.command.outputs.run == 'true' && steps.budget.outputs.decision == 'allow' && github.event.issue.pull_request == null
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api --paginate "repos/$GH_REPO/issues/$SOURCE_ISSUE/comments?per_page=100" \
-            --jq '.[] | select(.id == 6954938844 and .user.login == "ikurennyi" and .author_association == "OWNER") | .html_url' \
-            > "$RUNNER_TEMP/approval-url"
-          test "$(cat "$RUNNER_TEMP/approval-url")" = "https://github.com/$GH_REPO/issues/17#issuecomment-6954938844"
-          dependencies="$(gh api "repos/$GH_REPO/issues/18" --jq '.issue_dependencies_summary.blocked_by // [] | length')"
-          test "$dependencies" = "0"
-          gh api --paginate "repos/$GH_REPO/issues/18/comments?per_page=100" \
-            --jq '[.[] | select(.body | test("Blocked by:[[:space:]]*#[0-9]+"))] | length' \
-            > "$RUNNER_TEMP/textual-blockers"
-          test "$(cat "$RUNNER_TEMP/textual-blockers")" = "0"
-
-      - name: Stop without invoking the model when the budget is exhausted
-        if: steps.command.outputs.run == 'true' && steps.budget.outputs.decision == 'limit_exhausted'
-        run: |
-          echo "limit_exhausted; last SHA: $(git rev-parse HEAD); logs: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-
-      - name: Run approved implementation session
+          test -z "$(find candidate -path candidate/.git -prune -o -type l -print)"
+      - name: Install isolated pinned OpenCode CLI after admission
+        if: steps.gate.outputs.decision == 'allow'
+        run: docker build --file policy/tooling/agent-runner/Dockerfile --tag agent-runner policy
+      - name: Run model with no GitHub token, shell or head-code execution
         id: model
-        if: steps.command.outputs.run == 'true' && steps.budget.outputs.decision == 'allow'
+        if: steps.gate.outputs.decision == 'allow'
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          GH_TOKEN: ${{ github.token }}
+          AGENT_OUTPUT: ${{ runner.temp }}/implementation
         run: |
           set -euo pipefail
-          gh api "repos/$GH_REPO/issues/$SOURCE_ISSUE" > "$RUNNER_TEMP/source.json"
-          gh api --paginate "repos/$GH_REPO/issues/$SOURCE_ISSUE/comments?per_page=100" > "$RUNNER_TEMP/source-comments.json"
-          gh api "repos/$GH_REPO/issues/22" > "$RUNNER_TEMP/spec.json"
-          gh api "repos/$GH_REPO/issues/18" > "$RUNNER_TEMP/ticket.json"
-          gh api --paginate "repos/$GH_REPO/issues/18/comments?per_page=100" > "$RUNNER_TEMP/ticket-comments.json"
-          if timeout 20m opencode run --standalone --archived --model "$OPENCODE_MODEL" \
-            --agent github-implementer \
-            "Implement only approved ticket #18 from spec #22 in $GH_REPO. Read the complete source issue discussion, spec and ticket artifacts from $RUNNER_TEMP. Approval permalink: https://github.com/$GH_REPO/issues/17#issuecomment-6954938844. Preserve workflow #15 routing; do not push, create a PR, merge, alter release-please, or edit hexlet-check.yml. For PR fixes, use the validated checkout SHA in $RUNNER_TEMP/head-sha and the inline context in review-context.jsonl (path, line, original_line, side, diff_hunk). Run the scoped local policy checks and report the patch as an artifact." \
-            > "$RUNNER_TEMP/implementation-report.md"; then
+          if [ -z "$OPENCODE_API_KEY" ]; then
+            echo "verdict=infra" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if timeout --kill-after=15s 20m docker run --rm --name "implement-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,nosuid,nodev \
+            --env HOME=/tmp --env OPENCODE_API_KEY \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/candidate,dst=/workspace" \
+            --mount "type=bind,src=$AGENT_OUTPUT,dst=/context,readonly" \
+            agent-runner --model opencode/glm-5.3-flash-free --agent github-implementer \
+            "Read /context/context.json. Implement the approved graph or the current human PR fix in /workspace. Complete an internal standards and specification review before the final report. Independent checks and separately authorized publication are runner duties." \
+            > "$AGENT_OUTPUT/report.md"; then
             echo "verdict=success" >> "$GITHUB_OUTPUT"
           else
-            result=$?
-            if [ "$result" = "124" ]; then verdict="timeout"; else verdict="agent_failed"; fi
+            status=$?
+            if [ "$status" = 124 ] || [ "$status" = 137 ]; then verdict=timeout; else verdict=agent_failed; fi
             echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-
-      - name: Recheck PR head after implementation
-        if: steps.command.outputs.run == 'true' && steps.budget.outputs.decision == 'allow' && (github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+      - name: Stop only this invocation container
+        if: always() && steps.gate.outputs.decision == 'allow'
         run: |
-          set -euo pipefail
-          current_sha="$(gh api "repos/$GH_REPO/pulls/$ISSUE_NUMBER" --jq '.head.sha')"
-          expected_sha="$(cat "$RUNNER_TEMP/head-sha")"
-          if [ "$current_sha" != "$expected_sha" ]; then
-            echo "PR head changed during implementation: expected $expected_sha, current $current_sha" >> "$RUNNER_TEMP/implementation-report.md"
-            exit 1
+          if docker inspect "implement-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" > /dev/null 2>&1; then
+            docker stop --time 5 "implement-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           fi
-
-      - name: Prepare patch artifact
-        if: steps.command.outputs.run == 'true' && steps.budget.outputs.decision == 'allow' && success()
-        run: |
-          git diff --binary > "$RUNNER_TEMP/implementation.patch"
-          git diff --check
-
-      - name: Upload implementation evidence
-        if: always() && steps.command.outputs.run == 'true'
+      - name: Validate protected paths and prepare complete patch
+        if: steps.model.outputs.verdict == 'success'
+        run: node policy/tooling/agent-control.mjs patch candidate
+      - name: Save immutable run-scoped implementation evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: implementation-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/implementation.patch
-            ${{ runner.temp }}/implementation-report.md
-            ${{ runner.temp }}/agent-budget.json
-          if-no-files-found: ignore
+          name: implementation-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/implementation
+          if-no-files-found: error
+
+  verify:
+    needs: implement
+    if: needs.implement.outputs.verdict == 'success' && needs.implement.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:18.3-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-ephemeral
+          POSTGRES_DB: scaffold_ci
+        ports: [5432/tcp]
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U ci -d scaffold_ci"
+          --health-interval 1s --health-timeout 3s --health-retries 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.implement.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: implementation-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/implementation
+      - name: Apply candidate patch, without model or publishing credentials
+        run: git apply --check "$RUNNER_TEMP/implementation/implementation.patch" && git apply "$RUNNER_TEMP/implementation/implementation.patch"
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential autoconf libssl-dev libyaml-dev zlib1g-dev libreadline-dev libffi-dev libgmp-dev libpq-dev pkg-config
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          version: 2026.11.6
+          cache: false
+      - name: Install locked dependencies
+        run: |
+          mise exec -- gem install bundler -v 4.0.22 --no-document
+          mise run install
+          mise exec -- node frontend/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Recheck policies and complete aggregate
+        env:
+          CI: "true"
+          DATABASE_URL: postgresql://ci:ci-ephemeral@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/scaffold_ci
+        run: |
+          mise run ci:validate
+          mise run check
 
   report:
-    if: always() && needs.implement.outputs.command == 'true'
-    needs: implement
+    if: always() && needs.route.outputs.run == 'true'
+    needs: [route, implement, verify]
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
-      contents: read
       issues: write
       pull-requests: write
-    env:
-      GH_REPO: ${{ github.repository }}
-      ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
     steps:
-      - name: Publish the final implementation verdict
+      - name: Publish no-model verdict, last known SHA and logs
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
           JOB_RESULT: ${{ needs.implement.result }}
+          CHECK_RESULT: ${{ needs.verify.result }}
           BUDGET_DECISION: ${{ needs.implement.outputs.decision }}
           MODEL_VERDICT: ${{ needs.implement.outputs.verdict }}
+          LAST_SHA: ${{ needs.implement.outputs.sha }}
         run: |
           set -euo pipefail
-          if [ "$BUDGET_DECISION" = "limit_exhausted" ]; then
-            verdict="limit_exhausted"
-          elif [ "$JOB_RESULT" = "cancelled" ] || [ "$MODEL_VERDICT" = "timeout" ]; then
-            verdict="timeout"
-          elif [ "$JOB_RESULT" = "failure" ] && [ -n "$BUDGET_DECISION" ]; then
-            verdict="${MODEL_VERDICT:-agent_failed}"
-            if [ "$verdict" = "success" ]; then verdict="agent_failed"; fi
-          else
-            verdict="infra"
+          verdict=infra
+          if [ "$BUDGET_DECISION" = limit_exhausted ]; then verdict=limit_exhausted
+          elif [ "$JOB_RESULT" = cancelled ] || [ "$MODEL_VERDICT" = timeout ]; then verdict=timeout
+          elif [ "$MODEL_VERDICT" = agent_failed ]; then verdict=agent_failed
+          elif [ "$MODEL_VERDICT" = success ] && [ "$CHECK_RESULT" = success ]; then verdict=success
+          elif [ "$MODEL_VERDICT" = success ]; then verdict=agent_failed
           fi
-          sha="${{ github.sha }}"
+          sha="$LAST_SHA"
+          if [ "$GITHUB_EVENT_NAME" = pull_request_review_comment ] || jq -e '.issue.pull_request' "$GITHUB_EVENT_PATH" > /dev/null; then
+            sha="$(gh api "repos/$GH_REPO/pulls/$ISSUE_NUMBER" --jq '.head.sha')"
+          fi
           url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          body="$verdict; last SHA: $sha; logs: $url"
-          if [ "$GITHUB_EVENT_NAME" = "pull_request_review_comment" ]; then
+          body="$verdict; last SHA: ${sha:-unknown}; logs: $url. Нужен человек: проверьте результат и отдельно разрешите публикацию; свежие CI и авторевью требуют подтверждения владельца для GITHUB_TOKEN."
+          if [ "$GITHUB_EVENT_NAME" = pull_request_review_comment ]; then
             comment_id="$(jq -r '.comment.id' "$GITHUB_EVENT_PATH")"
             gh api --method POST "repos/$GH_REPO/pulls/comments/$comment_id/replies" -f body="$body"
           else
