@@ -50,16 +50,24 @@ it.skipIf(inject('emptyMeetingTypes') || inject('occupiedCalendar'))(
       await expect
         .poll(() => wrapper.find(`button[data-start="${interval.startsAt}"]`).exists())
         .toBe(true)
-      await wrapper.get(`button[data-start="${interval.startsAt}"]`).trigger('click')
+      const availableIntervalButton = wrapper.get(`button[data-start="${interval.startsAt}"]`)
+      const availableDot = availableIntervalButton.find('.availability-dot')
+      expect(availableDot.exists()).toBe(true)
+      expect(availableDot.attributes('aria-hidden')).toBe('true')
+      expect(availableIntervalButton.text()).not.toMatch(/Available|Unavailable/)
+      await availableIntervalButton.trigger('click')
       await expect.poll(() => wrapper.get('button.continue').attributes('disabled')).toBeUndefined()
-      expect(wrapper.get(`button[data-start="${interval.startsAt}"]`).text()).toContain('Available')
+      const selectedIntervalButton = wrapper.get(`button[data-start="${interval.startsAt}"]`)
+      expect(selectedIntervalButton.attributes('aria-pressed')).toBe('true')
+      expect(selectedIntervalButton.find('.availability-dot').exists()).toBe(true)
+      expect(selectedIntervalButton.text()).not.toMatch(/Available|Unavailable/)
       const berlinStart = new Intl.DateTimeFormat('en-GB', {
         timeZone: 'Europe/Berlin',
         hour: '2-digit',
         minute: '2-digit',
         hourCycle: 'h23',
       }).format(new Date(interval.startsAt))
-      expect(wrapper.get(`button[data-start="${interval.startsAt}"]`).text()).toContain(berlinStart)
+      expect(selectedIntervalButton.text()).toContain(berlinStart)
       await wrapper.get('button.continue').trigger('click')
       await expect.poll(() => wrapper.text()).toContain('Guest details')
       expect(router.currentRoute.value.query).toMatchObject({
@@ -122,15 +130,25 @@ it.skipIf(inject('emptyMeetingTypes') || inject('occupiedCalendar'))(
       expect(document.activeElement).toBe(button.element)
       await userEvent.keyboard('{Enter}')
       await expect.poll(() => wrapper.find('.intervals').exists()).toBe(true)
+      const intervalButtons = wrapper.findAll('.intervals button')
+      expect(intervalButtons.length).toBeGreaterThan(0)
+      const availableButtons = intervalButtons.filter(
+        (entry) => entry.attributes('disabled') === undefined,
+      )
+      const occupiedButtons = intervalButtons.filter(
+        (entry) => entry.attributes('disabled') !== undefined,
+      )
       expect(
-        wrapper
-          .findAll('.intervals button')
-          .every((entry) => /Available|Unavailable/.test(entry.text())),
+        availableButtons.every(
+          (entry) =>
+            !/Available|Unavailable/.test(entry.text()) &&
+            entry.find('.availability-dot').attributes('aria-hidden') === 'true',
+        ),
       ).toBe(true)
       expect(
-        wrapper
-          .findAll('.intervals button:disabled')
-          .every((entry) => entry.text().includes('Unavailable')),
+        occupiedButtons.every(
+          (entry) => /Unavailable/.test(entry.text()) && !entry.find('.availability-dot').exists(),
+        ),
       ).toBe(true)
     } finally {
       wrapper.unmount()
@@ -150,6 +168,13 @@ it.runIf(inject('occupiedCalendar'))(
       await expect.poll(() => wrapper.text()).toContain('No available times on this date')
       expect(wrapper.get('button.continue').attributes('disabled')).toBeDefined()
       expect(wrapper.findAll('.intervals button:not(:disabled)')).toHaveLength(0)
+      const occupiedButtons = wrapper.findAll('.intervals button')
+      expect(occupiedButtons.length).toBeGreaterThan(0)
+      occupiedButtons.forEach((entry) => {
+        expect(entry.attributes('disabled')).toBeDefined()
+        expect(entry.text()).toMatch(/Unavailable/)
+        expect(entry.find('.availability-dot').exists()).toBe(false)
+      })
     } finally {
       wrapper.unmount()
     }

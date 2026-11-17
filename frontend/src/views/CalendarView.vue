@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getAvailability, type Availability } from '../generated/sdk'
+import { getAvailability, type Availability, type CalendarInterval } from '../generated/sdk'
 import GuestBookingForm from './GuestBookingForm.vue'
 import { pendingBookingAttempt } from '../guest/state'
 
@@ -91,6 +91,10 @@ function formatTime(value: string) {
     hourCycle: 'h23',
     timeZone: 'Europe/Berlin',
   }).format(new Date(value))
+}
+function intervalLabel(interval: CalendarInterval) {
+  const range = `${formatTime(interval.startsAt)}–${formatTime(interval.endsAt)}`
+  return interval.available ? range : `${range} · Unavailable`
 }
 function calendarLocation(query: Record<string, string>) {
   return { name: 'meeting-calendar', params: { slug: route.params.slug }, query }
@@ -291,8 +295,12 @@ onBeforeUnmount(() => {
                     :aria-pressed="start === interval.startsAt"
                     @click="selectInterval(interval.startsAt)"
                   >
-                    {{ formatTime(interval.startsAt) }}–{{ formatTime(interval.endsAt) }} ·
-                    {{ interval.available ? 'Available' : 'Unavailable' }}
+                    <span
+                      v-if="interval.available"
+                      class="availability-dot"
+                      aria-hidden="true"
+                    ></span>
+                    {{ intervalLabel(interval) }}
                   </button>
                 </li>
               </ul>
@@ -397,6 +405,15 @@ a:focus-visible {
 .intervals button {
   width: 100%;
   margin-bottom: 6px;
+}
+.availability-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #15803d;
+  vertical-align: middle;
 }
 .continue {
   margin-top: 16px;
