@@ -1,5 +1,6 @@
 require "minitest/autorun"
 require "yaml"
+require "json"
 require "open3"
 require "tempfile"
 
@@ -264,6 +265,82 @@ class WorkflowTest < Minitest::Test
     assert_equal "discussion", route("/oc to-spec", "GITHUB_EVENT_NAME" => "pull_request_review_comment").fetch("stage")
     assert_equal "discussion", route("/oc to-spec", "IS_PULL_REQUEST" => "true").fetch("stage")
     assert_equal "discussion", route("/oc to-spec", "IS_PULL_REQUEST" => "").fetch("stage")
+  end
+
+  def test_implementer_is_a_distinct_trusted_mode_and_budget_history_is_separate
+    workflow_path = File.join(ROOT, ".github/workflows/implement-spec.yml")
+    assert File.file?(workflow_path), "Implement-spec must not expand the discussion workflow"
+    workflow = YAML.safe_load_file(workflow_path)
+    assert_equal({}, workflow.fetch("permissions"))
+    job = workflow.fetch("jobs").fetch("implement")
+    report = workflow.fetch("jobs").fetch("report")
+    assert_equal "always() && needs.implement.outputs.command == 'true'", report.fetch("if")
+    assert_equal(
+      { "contents" => "read", "issues" => "write", "pull-requests" => "write" },
+      report.fetch("permissions")
+    )
+    assert_equal(
+      { "contents" => "read", "issues" => "read", "pull-requests" => "read", "actions" => "read" },
+      job.fetch("permissions")
+    )
+    assert_includes job.fetch("if"), "github.event.comment.user.type != 'Bot'"
+    assert_includes job.fetch("if"), "OWNER"
+    assert_includes job.fetch("if"), "COLLABORATOR"
+    assert_equal false, job.fetch("concurrency").fetch("cancel-in-progress")
+    refute workflow.fetch("on").key?("pull_request_target")
+
+    runs = job.fetch("steps").filter_map { |step| step["run"] }.join("\n")
+    assert_includes runs, "6954938844"
+    assert_includes runs, "gh api --paginate"
+    assert_includes runs, "tooling/agent-budget.mjs"
+    assert_includes runs, "timeout 20m"
+    assert_includes runs, 'verdict="timeout"'
+    assert_includes runs, "original_line"
+    assert_includes runs, "diff_hunk"
+    assert_includes runs, "pulls/$ISSUE_NUMBER"
+    refute_includes runs, "git push"
+    refute_includes runs, "gh pr create"
+    implementer = agent("github-implementer")
+    assert_equal "allow", permission("github-implementer", "edit", "docs/agents/issue-tracker.md")
+    assert_equal "deny", permission("github-implementer", "shell", "git push")
+    assert_equal "deny", permission("github-implementer", "shell", "gh pr create")
+    assert_equal "primary", implementer.fetch("mode")
+  end
+
+  def test_interactive_and_review_budgets_are_independently_limited
+    script = File.read(File.join(ROOT, "tooling/agent-budget.mjs"))
+    assert_includes script, '["interactive", "review"]'
+    assert_includes script, "run_attempt"
+    assert_includes script, 'count >= limit ? "limit_exhausted" : "allow"'
+    assert_includes script, "process.exit(2)"
+
+    {
+      "interactive" => [
+        { "display_title" => "agent-budget:pr-8:interactive", "run_attempt" => 2 },
+        { "display_title" => "agent-budget:pr-8:interactive", "run_attempt" => 1 },
+        { "display_title" => "agent-budget:pr-8:review", "run_attempt" => 3 }
+      ],
+      "review" => [
+        { "display_title" => "agent-budget:pr-8:interactive", "run_attempt" => 3 },
+        { "display_title" => "agent-budget:pr-8:review", "run_attempt" => 2 },
+        { "display_title" => "agent-budget:pr-8:review", "run_attempt" => 1 }
+      ]
+    }.each do |mode, runs|
+      stdout, stderr, status = Open3.capture3(
+        "node", File.join(ROOT, "tooling/agent-budget.mjs"), mode, "8",
+        stdin_data: runs.map { |run| JSON.generate(run) }.join("\n")
+      )
+      assert status.success?, stderr
+      assert_equal "limit_exhausted", JSON.parse(stdout).fetch("decision")
+      assert_equal 3, JSON.parse(stdout).fetch("count")
+    end
+
+    stdout, stderr, status = Open3.capture3(
+      "node", File.join(ROOT, "tooling/agent-budget.mjs"), "interactive", "8",
+      stdin_data: JSON.generate("display_title" => "agent-budget:pr-8:review", "run_attempt" => 3)
+    )
+    assert status.success?, stderr
+    assert_equal "allow", JSON.parse(stdout).fetch("decision")
   end
 
   def test_help_calls_are_separate_and_helper_shell_commands_stay_denied

@@ -57,10 +57,13 @@ There is no separate publication command or model JSON protocol.
 The workflow posts the final Markdown answer; use gh issue comment for extra
 durable notes/cross-links, not a duplicate final answer.
 
-Before publication, search all issue states for existing artifacts linked to
-this source and read their discussions. Reuse previous work; after partial
-failures, ask if provenance/scope is ambiguous rather than duplicating issues.
-The workflow does not guarantee exactly-once publication.
+Before publishing tickets, compare all existing open tickets for this source
+with the current approved specification. Read their full discussions; update
+suitable tickets in place instead of creating duplicates. If it is unclear
+whether an existing ticket covers the scope, ask the human before writing.
+Search all issue states for related artifacts as well. After partial failures,
+ask if provenance/scope is ambiguous rather than duplicating issues. The
+workflow does not guarantee exactly-once publication.
 Post source/spec/ticket cross-links and explicit Parent/Blocked by references.
 The human approves the published scope afterward in the source issue.
 

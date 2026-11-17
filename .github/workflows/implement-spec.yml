@@ -1,0 +1,242 @@
+name: Implement approved specification
+run-name: >-
+  ${{ (github.event.comment.body == '/oc implement-spec' ||
+       github.event.comment.body == '/opencode implement-spec' ||
+       github.event.comment.body == '/oc fix' ||
+       github.event.comment.body == '/opencode fix' ||
+       github.event.comment.body == '/oc implement-fixes' ||
+       github.event.comment.body == '/opencode implement-fixes') &&
+       format('agent-budget:pr-{0}:interactive',
+       github.event.issue.number || github.event.pull_request.number) ||
+       format('ignored-agent-command-{0}', github.run_id) }}
+
+"on":
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  implement:
+    if: >-
+      github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      command: ${{ steps.command.outputs.run }}
+      decision: ${{ steps.budget.outputs.decision }}
+      verdict: ${{ steps.model.outputs.verdict }}
+    concurrency:
+      group: implement-spec-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      actions: read
+    env:
+      GH_REPO: ${{ github.repository }}
+      SOURCE_ISSUE: "17"
+      OPENCODE_MODEL: opencode/glm-5.3-flash-free
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Route an explicit implementation command
+        id: command
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs")
+          const body = (process.env.COMMENT_BODY ?? "").trim()
+          const isPR = process.env.GITHUB_EVENT_NAME === "pull_request_review_comment" ||
+            process.env.IS_PULL_REQUEST === "true"
+          const accepted = isPR
+            ? /^\/(?:oc|opencode)[ \t]+(?:fix|implement-fixes)$/iu.test(body)
+            : process.env.GITHUB_EVENT_NAME === "issue_comment" &&
+              process.env.IS_PULL_REQUEST === "false" &&
+              process.env.ISSUE_NUMBER === process.env.SOURCE_ISSUE &&
+              /^\/(?:oc|opencode)[ \t]+implement-spec$/iu.test(body)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `run=${accepted}\n`)
+          NODE
+
+      - name: Install OpenCode CLI
+        if: steps.command.outputs.run == 'true'
+        run: npm install --global @opencode/cli@2.3.0
+
+      - name: Validate same-repository PR and capture its exact head
+        if: steps.command.outputs.run == 'true' && (github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/pulls/$ISSUE_NUMBER" > "$RUNNER_TEMP/pull-request.json"
+          jq -e --arg repo "$GH_REPO" '
+            .base.repo.full_name == $repo and
+            .head.repo.full_name == $repo and
+            (.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR")
+          ' "$RUNNER_TEMP/pull-request.json" > /dev/null
+          head_sha="$(jq -r '.head.sha' "$RUNNER_TEMP/pull-request.json")"
+          git fetch --no-tags "https://github.com/$GH_REPO.git" "$head_sha"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$head_sha"
+          echo "$head_sha" > "$RUNNER_TEMP/head-sha"
+
+      - name: Collect complete inline review context
+        if: steps.command.outputs.run == 'true' && (github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GH_REPO/pulls/$ISSUE_NUMBER/comments?per_page=100" \
+            --jq '.[] | {id,body,path,line,original_line,side,diff_hunk,commit_id}' \
+            > "$RUNNER_TEMP/review-context.jsonl"
+          gh api "repos/$GH_REPO/pulls/$ISSUE_NUMBER" --jq '{number,head:.head.sha,base:.base.sha,author:.user.login,title,body}' \
+            > "$RUNNER_TEMP/pull-request-context.json"
+
+      - name: Collect immutable run history and check budget
+        if: steps.command.outputs.run == 'true'
+        id: budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr_number="${{ github.event.issue.number || github.event.pull_request.number }}"
+          gh api --paginate "repos/$GH_REPO/actions/runs?per_page=100" \
+            --jq '.workflow_runs[] | select(.display_title | startswith("agent-budget:")) | {display_title,run_attempt}' \
+            > "$RUNNER_TEMP/agent-runs.jsonl"
+          node tooling/agent-budget.mjs interactive "$pr_number" \
+            < "$RUNNER_TEMP/agent-runs.jsonl" > "$RUNNER_TEMP/agent-budget.json"
+          decision="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1])).decision)' "$RUNNER_TEMP/agent-budget.json")"
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+
+      - name: Verify genuine owner approval and open blockers
+        if: steps.command.outputs.run == 'true' && steps.budget.outputs.decision == 'allow' && github.event.issue.pull_request == null
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GH_REPO/issues/$SOURCE_ISSUE/comments?per_page=100" \
+            --jq '.[] | select(.id == 6954938844 and .user.login == "ikurennyi" and .author_association == "OWNER") | .html_url' \
+            > "$RUNNER_TEMP/approval-url"
+          test "$(cat "$RUNNER_TEMP/approval-url")" = "https://github.com/$GH_REPO/issues/17#issuecomment-6954938844"
+          dependencies="$(gh api "repos/$GH_REPO/issues/18" --jq '.issue_dependencies_summary.blocked_by // [] | length')"
+          test "$dependencies" = "0"
+          gh api --paginate "repos/$GH_REPO/issues/18/comments?per_page=100" \
+            --jq '[.[] | select(.body | test("Blocked by:[[:space:]]*#[0-9]+"))] | length' \
+            > "$RUNNER_TEMP/textual-blockers"
+          test "$(cat "$RUNNER_TEMP/textual-blockers")" = "0"
+
+      - name: Stop without invoking the model when the budget is exhausted
+        if: steps.command.outputs.run == 'true' && steps.budget.outputs.decision == 'limit_exhausted'
+        run: |
+          echo "limit_exhausted; last SHA: $(git rev-parse HEAD); logs: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+      - name: Run approved implementation session
+        id: model
+        if: steps.command.outputs.run == 'true' && steps.budget.outputs.decision == 'allow'
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/issues/$SOURCE_ISSUE" > "$RUNNER_TEMP/source.json"
+          gh api --paginate "repos/$GH_REPO/issues/$SOURCE_ISSUE/comments?per_page=100" > "$RUNNER_TEMP/source-comments.json"
+          gh api "repos/$GH_REPO/issues/22" > "$RUNNER_TEMP/spec.json"
+          gh api "repos/$GH_REPO/issues/18" > "$RUNNER_TEMP/ticket.json"
+          gh api --paginate "repos/$GH_REPO/issues/18/comments?per_page=100" > "$RUNNER_TEMP/ticket-comments.json"
+          if timeout 20m opencode run --standalone --archived --model "$OPENCODE_MODEL" \
+            --agent github-implementer \
+            "Implement only approved ticket #18 from spec #22 in $GH_REPO. Read the complete source issue discussion, spec and ticket artifacts from $RUNNER_TEMP. Approval permalink: https://github.com/$GH_REPO/issues/17#issuecomment-6954938844. Preserve workflow #15 routing; do not push, create a PR, merge, alter release-please, or edit hexlet-check.yml. For PR fixes, use the validated checkout SHA in $RUNNER_TEMP/head-sha and the inline context in review-context.jsonl (path, line, original_line, side, diff_hunk). Run the scoped local policy checks and report the patch as an artifact." \
+            > "$RUNNER_TEMP/implementation-report.md"; then
+            echo "verdict=success" >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            if [ "$result" = "124" ]; then verdict="timeout"; else verdict="agent_failed"; fi
+            echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Recheck PR head after implementation
+        if: steps.command.outputs.run == 'true' && steps.budget.outputs.decision == 'allow' && (github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          current_sha="$(gh api "repos/$GH_REPO/pulls/$ISSUE_NUMBER" --jq '.head.sha')"
+          expected_sha="$(cat "$RUNNER_TEMP/head-sha")"
+          if [ "$current_sha" != "$expected_sha" ]; then
+            echo "PR head changed during implementation: expected $expected_sha, current $current_sha" >> "$RUNNER_TEMP/implementation-report.md"
+            exit 1
+          fi
+
+      - name: Prepare patch artifact
+        if: steps.command.outputs.run == 'true' && steps.budget.outputs.decision == 'allow' && success()
+        run: |
+          git diff --binary > "$RUNNER_TEMP/implementation.patch"
+          git diff --check
+
+      - name: Upload implementation evidence
+        if: always() && steps.command.outputs.run == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: implementation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/implementation.patch
+            ${{ runner.temp }}/implementation-report.md
+            ${{ runner.temp }}/agent-budget.json
+          if-no-files-found: ignore
+
+  report:
+    if: always() && needs.implement.outputs.command == 'true'
+    needs: implement
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+    steps:
+      - name: Publish the final implementation verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ needs.implement.result }}
+          BUDGET_DECISION: ${{ needs.implement.outputs.decision }}
+          MODEL_VERDICT: ${{ needs.implement.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          if [ "$BUDGET_DECISION" = "limit_exhausted" ]; then
+            verdict="limit_exhausted"
+          elif [ "$JOB_RESULT" = "cancelled" ] || [ "$MODEL_VERDICT" = "timeout" ]; then
+            verdict="timeout"
+          elif [ "$JOB_RESULT" = "failure" ] && [ -n "$BUDGET_DECISION" ]; then
+            verdict="${MODEL_VERDICT:-agent_failed}"
+            if [ "$verdict" = "success" ]; then verdict="agent_failed"; fi
+          else
+            verdict="infra"
+          fi
+          sha="${{ github.sha }}"
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body="$verdict; last SHA: $sha; logs: $url"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request_review_comment" ]; then
+            comment_id="$(jq -r '.comment.id' "$GITHUB_EVENT_PATH")"
+            gh api --method POST "repos/$GH_REPO/pulls/comments/$comment_id/replies" -f body="$body"
+          else
+            gh issue comment "$ISSUE_NUMBER" --body "$body"
+          fi
