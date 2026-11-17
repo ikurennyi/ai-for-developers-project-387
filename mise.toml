@@ -109,7 +109,7 @@ run = "ruby test/commit_ranges_test.rb"
 
 [tasks."ci:validate"]
 description = "Validate application, agent, and release workflows and policies; never modify Hexlet"
-run = ["actionlint .github/workflows/application-check.yml .github/workflows/opencode.yml .github/workflows/release-please.yml", "ruby test/workflow_test.rb", "ruby test/release_config_test.rb"]
+run = ["actionlint .github/workflows/application-check.yml .github/workflows/opencode.yml .github/workflows/issue-triage.yml .github/workflows/release-please.yml", "ruby test/workflow_test.rb", "ruby test/release_config_test.rb"]
 
 [tasks."contracts:generate"]
 dir = "contracts"

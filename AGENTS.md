@@ -2,6 +2,10 @@
 
 - Before exploring, read `docs/agents/domain.md`. Before tracker operations, read
   `docs/agents/issue-tracker.md`; before triaging, read `docs/agents/triage-labels.md`.
+- Track every project change in a GitHub issue before editing files. Work on a
+  task branch and deliver through a linked PR, never directly on the default
+  branch. For scope approval and GitHub agent commands, follow
+  `docs/agents/issue-tracker.md`.
 - Rails API is in `backend/`; Vue is in `frontend/`; `contracts/` owns TypeSpec;
   `tooling/` owns commitlint. Keep their lockfiles and npm projects independent.
 - For install, DB/start/status/stop and hooks, follow `README.md`; for individual
