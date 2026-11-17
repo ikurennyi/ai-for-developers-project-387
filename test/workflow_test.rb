@@ -400,6 +400,12 @@ class WorkflowTest < Minitest::Test
     implementer = agent("github-implementer")
     assert_equal "deny", permission("github-implementer", "edit", "docs/agents/issue-tracker.md")
     assert_equal "allow", permission("github-implementer", "edit", "/workspace/frontend/src/main.ts")
+    managed = JSON.parse(File.read(File.join(ROOT, "tooling/agent-runner/opencode.json"))).fetch("policies")
+    %w[edit write].each do |action|
+      rule = { "action" => "tool.use", "resource" => "#{action}:*/tooling/agent-*", "effect" => "deny" }
+      assert_includes managed, rule
+      assert File.fnmatch?(rule.fetch("resource"), "#{action}:/workspace/tooling/agent-budget-grants.json")
+    end
     assert_equal "deny", permission("github-implementer", "shell", "git push")
     assert_equal "deny", permission("github-implementer", "shell", "gh pr create")
     assert_equal "primary", implementer.fetch("mode")
@@ -412,6 +418,7 @@ class WorkflowTest < Minitest::Test
     gate = steps.index { |step| step["id"] == "gate" }
     install = steps.index { |step| step["name"] == "Install isolated pinned OpenCode CLI after admission" }
     assert_operator gate, :<, install
+    assert_equal "steps.gate.outputs.decision == 'allow'", steps.fetch(install).fetch("if")
     model = steps.find { |step| step["id"] == "model" }
     assert_equal %w[AGENT_OUTPUT OPENCODE_API_KEY], model.fetch("env").keys.sort
     assert_equal "steps.gate.outputs.decision == 'allow'", model.fetch("if")

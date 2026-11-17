@@ -229,7 +229,7 @@ class ReviewWorkflowTest < Minitest::Test
       policy = File.join(dir, "policy")
       FileUtils.mkdir_p([File.join(policy, "tooling"), File.join(policy, ".opencode/agents"),
                         File.join(dir, "candidate"), File.join(dir, "bin")])
-      %w[agent-review.mjs agent-policy.mjs].each do |name|
+      %w[agent-review.mjs agent-policy.mjs agent-budget-grants.json].each do |name|
         FileUtils.cp(File.join(ROOT, "tooling", name), File.join(policy, "tooling", name))
       end
       FileUtils.cp(File.join(ROOT, ".opencode/agents/github-review.md"), File.join(policy, ".opencode/agents"))

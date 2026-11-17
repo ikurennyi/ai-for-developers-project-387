@@ -1,7 +1,7 @@
 // External GitHub boundary fixtures; run the real trusted adapter and policy.
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs"
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, mkdirSync, copyFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
@@ -36,6 +36,11 @@ function fixture(event, overrides = {}) {
   writeFileSync(join(directory, "routes.json"), JSON.stringify(routes))
   writeFileSync(join(directory, "event.json"), JSON.stringify(event))
   writeFileSync(join(directory, "output"), "")
+  mkdirSync(join(directory, "policy/tooling"), { recursive: true })
+  mkdirSync(join(directory, "candidate/tooling"), { recursive: true })
+  for (const name of ["agent-control.mjs", "agent-policy.mjs", "agent-budget-grants.json"]) {
+    copyFileSync(resolve("tooling", name), join(directory, "policy/tooling", name))
+  }
   writeFileSync(join(directory, "fetch.mjs"), `
     import fs from "node:fs";
     const routes = JSON.parse(fs.readFileSync(process.env.FIXTURE_ROUTES));
@@ -46,12 +51,12 @@ function fixture(event, overrides = {}) {
   `)
   return {
     directory,
-    run() {
-      return spawnSync(process.execPath, ["--import", join(directory, "fetch.mjs"), resolve("tooling/agent-control.mjs"), "prepare"], {
-        encoding: "utf8",
+    run(id = 100, attempt = 1) {
+      return spawnSync(process.execPath, ["--import", join(directory, "fetch.mjs"), join(directory, "policy/tooling/agent-control.mjs"), "prepare"], {
+        encoding: "utf8", cwd: join(directory, "candidate"),
         env: { ...process.env, GH_TOKEN: "fixture-only", GITHUB_REPOSITORY: "owner/repo",
           GITHUB_EVENT_PATH: join(directory, "event.json"), GITHUB_OUTPUT: join(directory, "output"),
-          GITHUB_RUN_ID: "100", GITHUB_RUN_ATTEMPT: "1", FIXTURE_ROUTES: join(directory, "routes.json"),
+          GITHUB_RUN_ID: String(id), GITHUB_RUN_ATTEMPT: String(attempt), FIXTURE_ROUTES: join(directory, "routes.json"),
           AGENT_OUTPUT: join(directory, "evidence") }
       })
     },
@@ -152,6 +157,81 @@ test("ordinary and inline fixes use the same PR scope and receive complete posit
         assert.equal(context.trigger[key], event.comment[key])
         assert.equal(context.inline[0][key], event.comment[key])
       }
+    } finally { f.cleanup() }
+  }
+})
+
+function extendedFixture(extraIDs, approvalOverrides = {}) {
+  const base = "https://api.github.com/repos/owner/repo/"
+  const grant = {
+    repo: "owner/repo", scope: "issue-8", mode: "interactive",
+    workflowPath: ".github/workflows/implement-spec.yml", source: 17, spec: 22, ticket: 18,
+    additional: 2, after: { id: 93, run_attempt: 1 },
+    baseline: [90, 91, 92, 93].map((id) => ({ id, run_attempt: 1 })),
+    approval: "https://github.com/owner/repo/issues/17#issuecomment-199"
+  }
+  const IDs = [90, 91, 92, 93, ...extraIDs]
+  const overrides = {
+    [`${base}issues/comments/199`]: {
+      id: 199, user: { login: "owner", type: "User" }, author_association: "OWNER",
+      html_url: grant.approval,
+      body: "Одобряю дополнение спецификации #22 и тикета #18: 2 дополнительные интерактивные попытки для issue-8 после запуска 93, без сброса истории и изменения PR-бюджетов.",
+      ...approvalOverrides
+    },
+    [`${base}actions/workflows/implement-spec.yml/runs?per_page=100&page=1`]: {
+      total_count: IDs.length, workflow_runs: IDs.map((id) => ({
+        id, run_attempt: 1, path: ".github/workflows/implement-spec.yml"
+      }))
+    }
+  }
+  for (const id of IDs) {
+    overrides[`${base}actions/runs/${id}/attempts/1/jobs?per_page=100&page=1`] = {
+      total_count: 1, jobs: [{ name: "agent-admission:issue-8:interactive",
+        conclusion: id === extraIDs.at(-1) ? null : id % 2 ? "cancelled" : "timed_out",
+        started_at: new Date(Date.UTC(2026, 0, 1) + id * 1000).toISOString() }]
+    }
+  }
+  const f = fixture(sourceEvent(), overrides)
+  writeFileSync(join(f.directory, "policy/tooling/agent-budget-grants.json"), JSON.stringify([grant]))
+  // A candidate can claim arbitrarily many attempts, but is never policy.
+  writeFileSync(join(f.directory, "candidate/tooling/agent-budget-grants.json"),
+    JSON.stringify([{ ...grant, additional: 100 }]))
+  return f
+}
+
+test("real adapter consumes the trusted finite extension and withholds model context after exhaustion", () => {
+  for (const extras of [[100], [100, 101], [100, 101, 102]]) {
+    const f = extendedFixture(extras)
+    try {
+      const result = f.run(extras.at(-1))
+      assert.equal(result.status, 0, result.stderr)
+      const exhausted = extras.length === 3
+      const evidence = JSON.parse(readFileSync(join(f.directory, "evidence/budget.json")))
+      assert.equal(evidence.decision, exhausted ? "limit_exhausted" : "allow")
+      assert.equal(evidence.count, 4 + extras.length)
+      assert.equal(evidence.limit, 3)
+      assert.equal(evidence.extension.count, extras.length)
+      assert.equal(evidence.extension.limit, 2)
+      assert.equal(existsSync(join(f.directory, "evidence/context.json")), !exhausted)
+    } finally { f.cleanup() }
+  }
+})
+
+test("unapproved, missing, malformed or ambiguous trusted grants never use candidate overrides", () => {
+  for (const fault of ["approval", "missing", "malformed", "duplicate", "none"]) {
+    const f = extendedFixture([100], fault === "approval" ? { body: "ready-for-agent" } : {})
+    try {
+      const path = join(f.directory, "policy/tooling/agent-budget-grants.json")
+      const grants = JSON.parse(readFileSync(path))
+      if (fault === "missing") rmSync(path)
+      if (fault === "malformed") writeFileSync(path, "{")
+      if (fault === "duplicate") writeFileSync(path, JSON.stringify([...grants, ...grants]))
+      if (fault === "none") writeFileSync(path, "[]")
+      const result = f.run()
+      assert.equal(result.status, 0, result.stderr)
+      const evidence = JSON.parse(readFileSync(join(f.directory, "evidence/budget.json")))
+      assert.equal(evidence.decision, fault === "none" ? "limit_exhausted" : "infra")
+      assert.equal(existsSync(join(f.directory, "evidence/context.json")), false)
     } finally { f.cleanup() }
   }
 })

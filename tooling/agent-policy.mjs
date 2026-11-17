@@ -1,4 +1,6 @@
 // Shared trust, routing and finite-budget boundary for implementer and reviewer.
+import { readFileSync } from "node:fs"
+
 export function routeCommand(event) {
   const comment = event.comment
   if (event.action !== "created" || !comment || comment.user?.type !== "User" ||
@@ -64,13 +66,40 @@ export function verifiedArtifact(artifacts, name, producerLog) {
   return matching[0]
 }
 
-export function budgetDecision({ runs, current, mode, scope, workflowPath, historyComplete }) {
+function validExtension(grant) {
+  const identity = (item) => Number.isSafeInteger(item?.id) && item.id > 0 &&
+    Number.isSafeInteger(item?.run_attempt) && item.run_attempt > 0
+  const approval = typeof grant?.approval === "string" &&
+    /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)#issuecomment-([1-9]\d*)$/u.exec(grant.approval)
+  return Boolean(grant && /^[^/\s]+\/[^/\s]+$/u.test(grant.repo ?? "") &&
+    /^issue-[1-9]\d*$/u.test(grant.scope ?? "") && grant.mode === "interactive" &&
+    grant.workflowPath === ".github/workflows/implement-spec.yml" &&
+    [grant.source, grant.spec, grant.ticket, grant.additional].every((n) => Number.isSafeInteger(n) && n > 0) &&
+    grant.additional <= 100 && identity(grant.after) &&
+    Array.isArray(grant.baseline) && grant.baseline.length >= 4 && grant.baseline.length <= 100 &&
+    grant.baseline.every((item) => identity(item) && item.id <= grant.after.id &&
+      (item.id !== grant.after.id || item.run_attempt <= grant.after.run_attempt)) &&
+    new Set(grant.baseline.map((item) => `${item.id}:${item.run_attempt}`)).size === grant.baseline.length &&
+    grant.baseline.some((item) => item.id === grant.after.id && item.run_attempt === grant.after.run_attempt) &&
+    approval && approval[1] === grant.repo && Number(approval[2]) === grant.source)
+}
+
+function extensionApprovalValid(comment, grant) {
+  const body = `Одобряю дополнение спецификации #${grant.spec} и тикета #${grant.ticket}: ${grant.additional} дополнительные интерактивные попытки для ${grant.scope} после запуска ${grant.after.id}, без сброса истории и изменения PR-бюджетов.`
+  return comment?.user?.login === grant.repo.split("/")[0] && comment.user.type === "User" &&
+    comment.author_association === "OWNER" && comment.html_url === grant.approval &&
+    comment.html_url === `https://github.com/${grant.repo}/issues/${grant.source}#issuecomment-${comment.id}` &&
+    comment.body?.trim() === body
+}
+
+export function budgetDecision({ runs, current, mode, scope, workflowPath, historyComplete, extension }) {
   const deny = { decision: "infra", reason: "budget_not_proven" }
   if (!historyComplete || !Array.isArray(runs) || !["interactive", "review"].includes(mode) ||
       !/^(?:pr|issue)-[1-9]\d*$/.test(scope ?? "") ||
       !Number.isSafeInteger(current?.id) || current.id < 1 ||
       !Number.isSafeInteger(current?.run_attempt) || current.run_attempt < 1) return deny
   const ids = new Set()
+  const admitted = new Map()
   let count = 0
   let found = false
   for (const run of runs) {
@@ -81,10 +110,30 @@ export function budgetDecision({ runs, current, mode, scope, workflowPath, histo
     ids.add(key)
     if (run.path !== workflowPath || run.scope !== scope || run.mode !== mode) continue
     if (run.id === current.id && run.run_attempt === current.run_attempt && run.admitted) found = true
-    if (run.admitted) count += 1
+    if (run.admitted) { count += 1; admitted.set(key, run) }
   }
   if (!found) return deny
-  return { decision: count > 3 ? "limit_exhausted" : "allow", count, limit: 3, scope, mode }
+  const result = { decision: count > 3 ? "limit_exhausted" : "allow", count, limit: 3, scope, mode }
+  if (extension === undefined) return result
+  if (!validExtension(extension) || extension.scope !== scope || extension.mode !== mode ||
+      extension.workflowPath !== workflowPath) return deny
+  const baseline = new Set(extension.baseline.map((item) => `${item.id}:${item.run_attempt}`))
+  if (![...baseline].every((key) => admitted.has(key))) return deny
+  const checkpoint = Date.parse(admitted.get(`${extension.after.id}:${extension.after.run_attempt}`).startedAt)
+  if (!Number.isFinite(checkpoint)) return deny
+  for (const [key, run] of admitted) {
+    const started = typeof run.startedAt === "string" ? Date.parse(run.startedAt) : NaN
+    // Identity membership, not timestamp subtraction, accounts for reservations.
+    // Server timestamps additionally prove that the frozen set is the full prefix
+    // at the checkpoint; missing or ambiguous chronology cannot grant more calls.
+    if (!Number.isFinite(started) || (started <= checkpoint) !== baseline.has(key)) return deny
+  }
+  // A grant never retroactively admits a recorded historical refusal.
+  if (baseline.has(`${current.id}:${current.run_attempt}`)) return result
+  const used = count - baseline.size
+  return { ...result, decision: used <= extension.additional ? "allow" : "limit_exhausted",
+    extension: { count: used, limit: extension.additional, baselineCount: baseline.size,
+      after: extension.after, approval: extension.approval } }
 }
 
 export async function github(path, options = {}) {
@@ -121,8 +170,22 @@ github.paginate = async (path, key) => {
   return result
 }
 
-export async function collectBudget({ api = github, repo, current, mode, scope, workflowPath }) {
+export async function collectBudget({ api = github, repo, current, mode, scope, workflowPath, grants }) {
   try {
+    // This URL is relative to trusted policy, never cwd, candidate, or environment.
+    const configured = grants === undefined
+      ? JSON.parse(readFileSync(new URL("./agent-budget-grants.json", import.meta.url), "utf8"))
+      : grants
+    if (!Array.isArray(configured) || !configured.every(validExtension)) throw new Error("Invalid budget grants")
+    const matching = configured.filter((grant) => grant.repo === repo && grant.scope === scope &&
+      grant.mode === mode && grant.workflowPath === workflowPath)
+    if (matching.length > 1) throw new Error("Ambiguous budget extension")
+    const extension = matching[0]
+    if (extension) {
+      const id = extension.approval.split("#issuecomment-")[1]
+      const approval = await api(`repos/${repo}/issues/comments/${id}`)
+      if (!extensionApprovalValid(approval, extension)) throw new Error("No genuine budget extension approval")
+    }
     const workflows = await api.paginate(`repos/${repo}/actions/workflows/${encodeURIComponent(workflowPath.split("/").at(-1))}/runs`, "workflow_runs")
     const records = []
     for (const run of workflows) {
@@ -133,11 +196,12 @@ export async function collectBudget({ api = github, repo, current, mode, scope, 
         if (admission.length > 1) throw new Error("Ambiguous admission")
         records.push({
           id: run.id, run_attempt: attempt, path: run.path,
-          mode, scope, admitted: admission.length === 1 && admission[0].conclusion !== "skipped"
+          mode, scope, admitted: admission.length === 1 && admission[0].conclusion !== "skipped",
+          startedAt: admission[0]?.started_at
         })
       }
     }
-    return budgetDecision({ runs: records, current, mode, scope, workflowPath, historyComplete: true })
+    return budgetDecision({ runs: records, current, mode, scope, workflowPath, historyComplete: true, extension })
   } catch {
     return { decision: "infra", reason: "budget_not_proven" }
   }
