@@ -14,8 +14,8 @@ run-name: "agent-review:pr-${{ github.event.pull_request.number || inputs.pr }}"
 permissions: {}
 
 jobs:
-  review:
-    name: "agent-admission:pr-${{ github.event.pull_request.number || inputs.pr }}:review"
+  policy:
+    name: Trusted review installation (not a review verdict)
     if: >-
       (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner && github.ref_name == github.event.repository.default_branch) ||
       (github.event_name == 'pull_request' &&
@@ -23,6 +23,73 @@ jobs:
        (github.event.pull_request.user.login == github.repository_owner ||
         github.event.pull_request.user.login == 'github-actions[bot]' ||
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      ready: ${{ steps.installation.outputs.ready }}
+      sha: ${{ steps.revision.outputs.sha }}
+    steps:
+      - name: Check out only default-branch policy
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: policy
+          persist-credentials: false
+      - name: Detect first installation without trusting candidate policy
+        id: installation
+        run: |
+          set -euo pipefail
+          if [ ! -e policy/.github/workflows/agent-review.yml ] &&
+             [ ! -e policy/tooling/agent-review.mjs ] &&
+             [ ! -e policy/tooling/agent-policy.mjs ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "## bootstrap_required — independent review NOT performed" >> "$GITHUB_STEP_SUMMARY"
+            echo "Trusted review policy is not installed in the default branch. No model was called. This is not review approval. The owner must inspect the exact PR SHA, CI, browser artifacts and independent local review before separately deciding on the initial infrastructure merge." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          for file in .github/workflows/agent-review.yml tooling/agent-review.mjs \
+            tooling/agent-policy.mjs REVIEW.md .opencode/agents/github-review.md \
+            .opencode/agents/github-implementer.md tooling/agent-runner/Dockerfile \
+            tooling/agent-runner/opencode.json .agents/skills/implement-spec/SKILL.md; do
+            if [ ! -s "policy/$file" ]; then
+              echo "infra: incomplete trusted review installation ($file)" >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          done
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - name: Pin the inspected trusted-policy revision
+        if: steps.installation.outputs.ready == 'true'
+        id: revision
+        run: echo "sha=$(git -C policy rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Explain missing initial review on the current PR
+        if: steps.installation.outputs.ready == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          pr="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")"
+          jq -e --arg repo "$GH_REPO" --arg owner "$GITHUB_REPOSITORY_OWNER" '
+            .state == "open" and .head.repo.full_name == $repo and
+            (.user.login == $owner or .user.login == "github-actions[bot]" or
+             .author_association == "OWNER" or .author_association == "MEMBER" or
+             .author_association == "COLLABORATOR")
+          ' <<< "$pr" > /dev/null
+          sha="$(jq -r '.head.sha' <<< "$pr")"
+          if [ -n "$EXPECTED_SHA" ] && [ "$EXPECTED_SHA" != "$sha" ]; then exit 0; fi
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr comment "$PR_NUMBER" --body "bootstrap_required — авторевью НЕ выполнено для SHA $sha: доверенная политика ещё отсутствует в основной ветке. Модель не вызывалась; это не одобрение PR. Перед первоначальной установкой владелец должен проверить точный SHA, CI, браузерные артефакты и независимое локальное ревью, затем отдельно зафиксировать решение о merge. Логи: $url"
+
+  review:
+    name: "agent-admission:pr-${{ github.event.pull_request.number || inputs.pr }}:review"
+    needs: policy
+    if: needs.policy.outputs.ready == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     concurrency:
@@ -43,7 +110,7 @@ jobs:
       - name: Check out trusted policy
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ needs.policy.outputs.sha }}
           path: policy
           persist-credentials: false
 

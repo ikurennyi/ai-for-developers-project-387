@@ -12,6 +12,56 @@ class ReviewWorkflowTest < Minitest::Test
     YAML.safe_load_file(File.join(ROOT, ".github/workflows/agent-review.yml"))
   end
 
+  def test_first_installation_skips_review_without_loading_pr_policy_or_model
+    policy = workflow.fetch("jobs").fetch("policy")
+    probe = policy.fetch("steps").find { |step| step["id"] == "installation" }
+    Dir.mktmpdir("review-bootstrap-") do |dir|
+      output = File.join(dir, "output")
+      summary = File.join(dir, "summary")
+      FileUtils.mkdir_p(File.join(dir, "policy"))
+      _, stderr, status = Open3.capture3(
+        { "GITHUB_OUTPUT" => output, "GITHUB_STEP_SUMMARY" => summary },
+        "bash", "-euo", "pipefail", "-c", probe.fetch("run"), chdir: dir
+      )
+      assert status.success?, stderr
+      assert_includes File.read(output), "ready=false"
+      assert_includes File.read(summary), "NOT performed"
+      assert_includes File.read(summary), "bootstrap_required"
+      assert_equal "needs.policy.outputs.ready == 'true'", workflow.fetch("jobs").fetch("review").fetch("if")
+      refute_includes policy.to_yaml, "secrets."
+
+      # Once installed, a missing adapter is corruption/infra, not another
+      # installation exemption.
+      FileUtils.mkdir_p(File.join(dir, "policy/.github/workflows"))
+      File.write(File.join(dir, "policy/.github/workflows/agent-review.yml"), "installed")
+      File.write(output, "")
+      _, _, status = Open3.capture3(
+        { "GITHUB_OUTPUT" => output, "GITHUB_STEP_SUMMARY" => summary },
+        "bash", "-euo", "pipefail", "-c", probe.fetch("run"), chdir: dir
+      )
+      refute status.success?
+      refute_includes File.read(output), "ready=true"
+
+      %w[tooling/agent-review.mjs tooling/agent-policy.mjs REVIEW.md
+         .opencode/agents/github-review.md .opencode/agents/github-implementer.md
+         tooling/agent-runner/Dockerfile tooling/agent-runner/opencode.json
+         .agents/skills/implement-spec/SKILL.md].each do |file|
+        path = File.join(dir, "policy", file)
+        FileUtils.mkdir_p(File.dirname(path))
+        File.write(path, "trusted fixture")
+      end
+      File.write(output, "")
+      File.write(summary, "")
+      _, stderr, status = Open3.capture3(
+        { "GITHUB_OUTPUT" => output, "GITHUB_STEP_SUMMARY" => summary },
+        "bash", "-euo", "pipefail", "-c", probe.fetch("run"), chdir: dir
+      )
+      assert status.success?, stderr
+      assert_includes File.read(output), "ready=true"
+      refute_includes File.read(summary), "bootstrap_required"
+    end
+  end
+
   def test_review_has_only_pr_and_owner_manual_entrypoints
     assert_equal %w[pull_request workflow_dispatch], workflow.fetch("on").keys.sort
     assert_equal %w[opened reopened synchronize ready_for_review], workflow.fetch("on").fetch("pull_request").fetch("types")
@@ -19,9 +69,10 @@ class ReviewWorkflowTest < Minitest::Test
     job = workflow.fetch("jobs").fetch("review")
     assert_equal true, job.fetch("concurrency").fetch("cancel-in-progress")
     assert_includes job.fetch("concurrency").fetch("group"), "agent-review-"
-    assert_includes job.fetch("if"), "github.repository_owner"
-    assert_includes job.fetch("if"), "github-actions[bot]"
-    refute_includes job.fetch("if"), "!= 'Bot'"
+    policy = workflow.fetch("jobs").fetch("policy")
+    assert_includes policy.fetch("if"), "github.repository_owner"
+    assert_includes policy.fetch("if"), "github-actions[bot]"
+    refute_includes policy.fetch("if"), "!= 'Bot'"
     assert_equal 15, job.fetch("timeout-minutes")
   end
 
@@ -33,7 +84,9 @@ class ReviewWorkflowTest < Minitest::Test
     }, job.fetch("permissions"))
     steps = job.fetch("steps")
     trusted, candidate = steps.select { |s| s.fetch("uses", "").start_with?("actions/checkout@") }
-    assert_equal "${{ github.event.repository.default_branch }}", trusted.fetch("with").fetch("ref")
+    assert_equal "${{ needs.policy.outputs.sha }}", trusted.fetch("with").fetch("ref")
+    assert_equal "${{ github.event.repository.default_branch }}",
+      workflow.fetch("jobs").fetch("policy").fetch("steps").first.fetch("with").fetch("ref")
     assert_equal "policy", trusted.fetch("with").fetch("path")
     assert_equal "${{ steps.gate.outputs.sha }}", candidate.fetch("with").fetch("ref")
     [trusted, candidate].each { |s| assert_equal false, s.fetch("with").fetch("persist-credentials") }

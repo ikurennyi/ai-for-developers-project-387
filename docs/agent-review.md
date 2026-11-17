@@ -35,6 +35,35 @@ RELEASE_PLEASE_TOKEN is used. Model tools cannot publish.
 
 ## Budget and manual operation
 
+### First installation
+
+The PR that introduces this infrastructure cannot use a reviewer that is not
+yet installed in the trusted default branch. A no-model installation job checks
+only that branch. If the workflow, adapter and shared policy are all absent, it
+publishes `bootstrap_required — авторевью НЕ выполнено` with the current head SHA
+and logs; the actual review job is **skipped**, not passed. The green installation
+probe is not a review verdict. No model installation/call or admitted review job
+is created. A partial/broken installation fails as `infra`, rather than gaining
+another bootstrap exemption. Candidate policy is never used as a fallback.
+
+For that initial infrastructure PR, the owner must:
+
+1. Inspect the exact head commit, ordinary CI and browser evidence of that SHA.
+2. Read the independent local standards/spec review and resolved findings.
+3. Record the explicit initial-installation exception and merge decision in the
+   PR, without claiming GitHub model review occurred. Merge requires separate
+   authorization; branch protection is not silently disabled.
+4. After integration, verify a subsequent trusted PR runs real independent
+   review. Use the owner-only manual entrypoint if a GITHUB_TOKEN update did not
+   create a run. Never rerun an older head and call it fresh evidence.
+
+If protection requires the skipped review check and prevents installation,
+stop for the owner to approve a narrowly scoped bootstrap exception; do not
+remove protection automatically. Once present, the inspected default-branch
+policy SHA is pinned for the actual review job.
+
+### Normal operation
+
 The review budget is **three admitted attempts per PR**, independent of the
 executor's three interactive attempts. All workflow-run pages and every attempt's
 jobs prove admission, including cancelled/timed-out runs and re-runs. The dynamic
