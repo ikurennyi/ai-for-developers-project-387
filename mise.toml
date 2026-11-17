@@ -13,6 +13,7 @@ vacuum = "0.39.3"
 docker-cli = "29.9.3"
 docker-compose = "5.7.0"
 "github:rhysd/actionlint" = "1.7.12"
+shellcheck = "0.11.0"
 
 [daemons.backend]
 run = "exec ruby scripts/services.rb serve backend"
@@ -107,8 +108,8 @@ run = "node tooling/check-commits.mjs"
 run = "ruby test/commit_ranges_test.rb"
 
 [tasks."ci:validate"]
-description = "Validate application/release workflows and policies; never modify Hexlet"
-run = ["actionlint .github/workflows/application-check.yml .github/workflows/release-please.yml", "ruby test/workflow_test.rb", "ruby test/release_config_test.rb"]
+description = "Validate application, agent, and release workflows and policies; never modify Hexlet"
+run = ["actionlint .github/workflows/application-check.yml .github/workflows/opencode.yml .github/workflows/release-please.yml", "ruby test/workflow_test.rb", "ruby test/release_config_test.rb"]
 
 [tasks."contracts:generate"]
 dir = "contracts"

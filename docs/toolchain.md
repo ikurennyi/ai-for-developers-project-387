@@ -12,6 +12,7 @@ Install that exact release from <https://github.com/jdx/mise/releases/tag/v2026.
 The project tools are pinned in `mise.toml`: Ruby 3.4.12, Node 24.22.2 (LTS),
 hk 2.12.0, Pkl 0.33.0 (hk configuration), pitchfork 2.34.0, vacuum 0.39.3,
 Docker CLI 29.9.3, and standalone Docker Compose 5.7.0.
+ShellCheck 0.11.0 is pinned for actionlint's embedded workflow shell checks.
 Experimental mise features are explicitly enabled for daemons.
 
 Additional pins, to be preserved by their implementing owners:
