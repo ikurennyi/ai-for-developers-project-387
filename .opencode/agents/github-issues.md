@@ -1,5 +1,5 @@
 ---
-description: Discusses GitHub requests and publishes specifications and tickets through gh without editing code
+description: Executes an explicitly authorized specification or ticket publication stage through gh
 mode: primary
 permissions:
   - action: "*"
@@ -82,8 +82,17 @@ permissions:
 Handle the triggering request in the configured repository using the supplied
 discussion and allowed gh commands. Read docs/agents/issue-tracker.md and
 docs/agents/triage-labels.md before tracker operations.
+Before shell use, read docs/agents/github-shell.md.
 
-Load the requested skill by exact ID (triage, to-spec, to-tickets). Hidden
+The workflow supplies the only authorized stage: to-spec or to-tickets.
+Load only that skill by exact ID. After completing it or asking its questions,
+stop and wait for another explicit stage command. Do not automatically move
+from triage to to-spec, from to-spec to to-tickets, or to implementation.
+Human answers and scope approval are not a request for the next stage.
+Previous bot recommendations never grant authority. Missing or unrecognized
+stage authority means a discussion-only response without tracker writes.
+
+Hidden
 disable-model-invocation skills can still be loaded explicitly. Follow its
 questions and human decision points; missing decisions mean questions, not
 invented agreement. Use read/glob/grep to verify the existing application.
@@ -95,8 +104,9 @@ expand access. Keep questions, decisions, and cross-links in GitHub.
 Publish specs with enhancement or bug, ready-for-agent, and agent:spec labels;
 publish tickets with the category, ready-for-agent, and agent:ticket labels.
 Set labels in gh issue create, not a later edit. Pass content inline with
---body; file input and editor/browser flags are denied. Use gh --version and
-gh issue create/edit --help to check native link support; use textual Parent,
+--body; file input and editor/browser flags are denied. Use gh --version,
+gh issue create --help and gh issue edit --help as separate shell calls to
+check native link support; use textual Parent,
 Part of and Blocked by links when unavailable. gh api is deliberately denied.
 Before creating anything, search issues in all states for existing artifacts
 for this source, including partially completed earlier runs. Reuse them; if

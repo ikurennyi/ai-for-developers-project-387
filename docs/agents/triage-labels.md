@@ -27,7 +27,9 @@ the workflows; the model has no label-management command permission.
 
 Automatic triage is preliminary: the workflow adds needs-triage only when no
 state exists. The read-only model recommends a category/state and asks questions;
-it cannot promote, close or edit issues. Apply recommendations through the manual
-agent with human direction. Conflicting states require human review.
+it cannot promote, close or edit issues. The ordinary discussion agent is also
+read-only; the human applies recommended states through GitHub's label controls.
+Only explicit publication-stage commands grant the publication profile its
+tracker-write tools. Conflicting states require human review.
 After answering questions, invoke `/oc` to continue; plain replies do not spend
 model tokens automatically.

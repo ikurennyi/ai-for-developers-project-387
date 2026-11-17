@@ -22,12 +22,35 @@ human for renewed approval.
 
 ## GitHub discussion runner
 
-The `/oc` and `/opencode` runner reads code and operates on GitHub Issues
-directly through a shell allowlist for gh; it cannot implement code.
+The `/oc` and `/opencode` runner reads code and uses gh; it cannot implement
+code. By default it uses `github-discussion`, which cannot create, edit or
+comment on issues. The workflow posts its final answer.
 
-- `/oc разбери обращение по скиллу triage, код пока не меняй`
+### Explicit stage commands
+
+Publication tools (`github-issues`) are selected only from a supported command
+occupying the entire current human comment in a source issue:
+
+- `/oc to-spec`
+- `/oc to-tickets #N`
 - `/oc запусти скилл to-spec по обсуждению этого issue`
 - `/oc запусти скилл to-tickets по спецификации #N`
+- `/oc продолжи to-spec с учётом ответов`
+- `/oc продолжи to-tickets`
+
+`/opencode` is also accepted. The workflow also accepts the stage name alone,
+an optional `#N`, and the English `run [skill]` / `continue [skill]` prefixes.
+The executable grammar is in the workflow's command step.
+Extra prose, quotes/code fences, multiple stages, PR/review comments and
+ambiguous requests stay in discussion mode; explain the supported command
+instead of guessing intent. Post answers/constraints separately, then use a
+standalone stage command.
+
+Only the current command grants authority. Previous bot recommendations, human
+clarifications and scope approval never request the next stage. Complete the
+selected skill or ask its questions, then stop. To resume after questions,
+the human sends another explicit command for that stage. Never chain triage,
+to-spec, to-tickets or implementation automatically.
 
 Follow skill questions and human decision points, then publish through gh.
 There is no separate publication command or model JSON protocol.
@@ -41,20 +64,24 @@ The workflow does not guarantee exactly-once publication.
 Post source/spec/ticket cross-links and explicit Parent/Blocked by references.
 The human approves the published scope afterward in the source issue.
 
-Runner permissions are in `.opencode/agents/github-issues.md` and
-`.opencode/agents/github-triage.md`. The manual agent can view/list/create/comment/
-edit issues, but cannot close/delete issues, run arbitrary gh api, git, other
-shell commands, or edit local files. Its gh issue edit permission covers issue
+Runner permissions are in `.opencode/agents/github-discussion.md`,
+`.opencode/agents/github-issues.md` and `.opencode/agents/github-triage.md`.
+All can view/list issues; only the explicitly selected publication profile can
+create/comment/edit them. Discussion and auto-triage have read-only gh.
+None can close/delete issues, run arbitrary gh api, git, other shell commands,
+or edit local files. The publication profile's gh issue edit permission covers issue
 metadata/body as well as labels; human approval remains a procedural decision,
 not something enforced by the GitHub token.
 Pass content inline with `--body`: `--body-file`/`-F`, editor/browser/recovery/
 template flags are denied to avoid indirect file access or program execution.
 These runner-specific rules override the generic file-input examples below.
+Before shell calls, read `docs/agents/github-shell.md`: execute allowed gh
+commands separately, without auxiliary shell commands or pipelines.
 Use native relationships when the installed gh supports them; otherwise use the
 textual fallback, because arbitrary REST calls are not available to these agents.
 The auto-triage agent only reads GitHub. Its workflow sets needs-triage if no
-state exists, then posts its recommendation/questions. Continue and apply
-state changes through the manual agent with human direction.
+state exists, then posts its recommendation/questions. Continue discussion by
+command; the human applies recommended state labels through GitHub's interface.
 
 ## Repository
 
