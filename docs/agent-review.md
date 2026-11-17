@@ -14,6 +14,11 @@ head SHA to `candidate`. It runs all scripts from trusted policy and OpenCode
 in a read-only container with managed policies and read-only candidate/context
 mounts (`/workspace`, `/context`),
 never loads candidate configuration or instructions, and never executes PR code.
+Before CLI installation, the shared trusted `tooling/agent-snapshot.mjs` validates
+the candidate with the same symlink rules as the executor: only protected internal
+skill aliases are allowed; unsafe links fail before model access. See
+[snapshot validation](agent-executor.md#separation-of-authority). A missing trusted
+validator is `infra`, never permission to use a validator from the candidate.
 Checkouts retain no Git credentials. Only the model step receives
 `OPENCODE_API_KEY`; it receives no GH_TOKEN. A separate trusted collector reads
 the PR, paginated discussion/reviews/files, recursively linked same-repository
