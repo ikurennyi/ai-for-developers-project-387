@@ -1,0 +1,108 @@
+name: OpenCode agent
+
+"on":
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  opencode:
+    if: >-
+      github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: opencode-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check for an OpenCode command
+        id: command
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs")
+          const body = process.env.COMMENT_BODY ?? ""
+          const found = /(^|\s)\/(?:oc|opencode)(?=\s|$)/im.test(body)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `run=${found}\n`)
+          NODE
+
+      - name: Install OpenCode CLI
+        if: steps.command.outputs.run == 'true'
+        run: npm install --global @opencode/cli@2.3.0
+
+      - name: Collect issue and discussion context
+        if: steps.command.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          set -euo pipefail
+          prompt="$RUNNER_TEMP/opencode-prompt.md"
+          {
+            gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" \
+              --jq '"Issue or PR #\(.number): \(.title)\n\nDescription:\n\(.body // "")\n\nDiscussion comments:"'
+            gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
+              --jq '.[] | "\n---\n\(.user.login):\n\(.body)\n"'
+            if [ "$EVENT_NAME" = "pull_request_review_comment" ]; then
+              jq -r '.comment | "\n---\nReview comment by \(.user.login):\n\(.body)\nFile: \(.path)\nDiff context:\n\(.diff_hunk // "")"' \
+                "$GITHUB_EVENT_PATH"
+            fi
+            cat <<'INSTRUCTIONS'
+
+          Answer the triggering request using the repository and discussion context above.
+          This is a read-only explanation/research task. Do not edit files, create branches,
+          commits, or pull requests. If the request asks for implementation, explain what
+          you recommend instead of making changes.
+          INSTRUCTIONS
+          } > "$prompt"
+          echo "OPENCODE_PROMPT_FILE=$prompt" >> "$GITHUB_ENV"
+
+      - name: Run read-only OpenCode agent
+        if: steps.command.outputs.run == 'true'
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: |
+          set -euo pipefail
+          opencode run --standalone --archived \
+            --model opencode/big-pickle \
+            --agent github-explainer \
+            "$(cat "$OPENCODE_PROMPT_FILE")" \
+            > "$RUNNER_TEMP/opencode-response.md"
+          test -s "$RUNNER_TEMP/opencode-response.md"
+
+      - name: Reply to the discussion
+        if: steps.command.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          set -euo pipefail
+          response="$RUNNER_TEMP/opencode-response.md"
+          if [ "$EVENT_NAME" = "pull_request_review_comment" ]; then
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/pulls/comments/$COMMENT_ID/replies" \
+              -f body="$(cat "$response")"
+          else
+            gh api --method POST \
+              "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
+              -f body="$(cat "$response")"
+          fi
