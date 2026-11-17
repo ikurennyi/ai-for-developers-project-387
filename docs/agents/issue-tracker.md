@@ -4,7 +4,7 @@ Issues and specs live in GitHub Issues. Use the gh CLI.
 
 ## Repository
 
-The configured repository is ikurennyi/ai-for-developers-project-386.
+The configured repository is ikurennyi/ai-for-developers-project-387.
 Before the first issue creation in a session, verify the target with
 `gh repo view --json nameWithOwner`. If it differs, confirm with the user.
 
@@ -27,7 +27,7 @@ Use GitHub native sub-issues and dependencies when available:
 - Where unavailable, add `Part of #<parent>` and `Blocked by: #<number>`
   to the child body and link children in the parent task list.
 - A ticket is startable only when all blockers are closed.
-  `gh api repos/ikurennyi/ai-for-developers-project-386/issues/<number> --jq .issue_dependencies_summary.blocked_by`
+  `gh api repos/ikurennyi/ai-for-developers-project-387/issues/<number> --jq .issue_dependencies_summary.blocked_by`
   counts open native blockers; also check textual fallbacks.
 
 When a skill says to publish, create an issue here.

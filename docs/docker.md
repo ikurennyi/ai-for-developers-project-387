@@ -12,8 +12,8 @@ are **not** needed to build or start it.
 ## Clean checkout
 
 ```sh
-git clone https://github.com/ikurennyi/ai-for-developers-project-386.git
-cd ai-for-developers-project-386
+git clone https://github.com/ikurennyi/ai-for-developers-project-387.git
+cd ai-for-developers-project-387
 # Check out the desired implementation commit.
 mise trust mise.toml
 mise install

@@ -52,7 +52,7 @@ release PR has no real application checks.
 An authorized maintainer must:
 
 1. Create a **fine-grained personal access token**, preferably for a dedicated
-   automation account. Select only `ikurennyi/ai-for-developers-project-386`,
+   automation account. Select only `ikurennyi/ai-for-developers-project-387`,
    set a short practical expiration, and grant repository **Contents: read/write**,
    **Pull requests: read/write**, and **Issues: read/write** (release lifecycle
    labels). Metadata read is implicit. Do not grant Actions, Workflows,

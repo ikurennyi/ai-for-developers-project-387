@@ -1,7 +1,8 @@
 # Календарь звонков
 
 
-[![hexlet-check](https://github.com/ikurennyi/ai-for-developers-project-386/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/ikurennyi/ai-for-developers-project-386/actions)
+[![hexlet-check](https://github.com/ikurennyi/ai-for-developers-project-387/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/ikurennyi/ai-for-developers-project-387/actions)
+[![application-check](https://github.com/ikurennyi/ai-for-developers-project-387/actions/workflows/application-check.yml/badge.svg)](https://github.com/ikurennyi/ai-for-developers-project-387/actions/workflows/application-check.yml)
 
 Разработайте совместно с ИИ сервис для бронирования календаря
 
@@ -11,7 +12,8 @@
 ## Первый шаг: каркас приложения
 
 - [Исходные требования шага](1-step.md).
-- [Утверждённая спецификация](https://github.com/ikurennyi/ai-for-developers-project-386/issues/1).
+- [Утверждённая спецификация первого проекта](https://github.com/ikurennyi/ai-for-developers-project-386/issues/1).
+- Исходная спецификация: [SPECIFICATION.md](SPECIFICATION.md); словарь: [GLOSSARY.md](GLOSSARY.md).
 - [Закреплённые инструменты](docs/toolchain.md), [локальная приёмка и открытые критерии](docs/acceptance.md).
 
 Главная страница рассказывает о сервисе; Book a meeting открывает список
@@ -22,30 +24,23 @@
 Локальный прогон не подтверждает зелёный GitHub Actions: внешний CI и итоговый
 review пока не подтверждены, родительская спецификация не объявляется выполненной.
 
-## Публичный учебный деплой
+## Запуск приложения
 
-Приложение: [ai-for-developers-project-386-ddst.onrender.com](https://ai-for-developers-project-386-ddst.onrender.com).
+Старый публичный адрес предыдущего проекта: [ai-for-developers-project-386-ddst.onrender.com](https://ai-for-developers-project-386-ddst.onrender.com) (доступность не подтверждена). Для гарантированного локального запуска используйте Docker:
 
-Сервис развёрнут на Render из корневого `Dockerfile`. Render автоматически
-передаёт web service переменную `PORT` (обычно `10000`); Dockerfile запускает
-Puma, а `backend/config/puma.rb` слушает `ENV["PORT"]`. `PORT` не нужно
-добавлять вручную. Для запуска вне Render задайте `PORT` сами; образ по умолчанию
-использует `3000`.
+Нужны mise и работающий Docker Engine. Подробности и требования к локальному сертификату: [Docker application](docs/docker.md).
 
-Приложение использует отдельную PostgreSQL. `DATABASE_URL`, `SECRET_KEY_BASE`,
-`ADMIN_USERNAME` и `ADMIN_PASSWORD` задаются в настройках Render как переменные
-окружения/секреты.
+```sh
+git clone https://github.com/ikurennyi/ai-for-developers-project-387.git
+cd ai-for-developers-project-387
+mise trust mise.toml
+mise install
+HTTPS_PORT=8443 mise exec -- ruby scripts/docker.rb setup
+mise exec -- ruby scripts/docker.rb build
+mise exec -- ruby scripts/docker.rb up
+```
 
-PostgreSQL обязательна для работы приложения. Если `DATABASE_URL` отсутствует,
-контейнер отдаёт на главной странице диагностическое сообщение о ненастроенной
-БД (для минимальной проверки запуска контейнера); API и бронирование в этом
-режиме недоступны. Это не рабочий режим деплоя — настройте `DATABASE_URL` в
-Render.
-Бронирования и настройки хранятся в PostgreSQL, поэтому рестарт/redeploy web
-service с той же БД сам по себе данные не сбрасывает. Файловая система web
-service временная. У бесплатной Render PostgreSQL срок жизни ограничен 30 днями:
-после истечения БД её данные нельзя считать постоянными; проверьте тариф и
-срок действия БД в Render Dashboard.
+Откройте `https://localhost:8443` и примите предупреждение браузера о локальном сертификате. Начальные данные администратора находятся в локальном файле `.services/docker.env`; не публикуйте его. Команды остановки и дальнейшего управления описаны в [Docker application](docs/docker.md).
 
 ### Подключение Render MCP в OpenCode
 
@@ -75,8 +70,8 @@ Docker Engine и системные зависимости сборки Ruby/pg 
 mise устанавливает Docker CLI, но не Docker Engine/VM.
 
 ```bash
-git clone https://github.com/ikurennyi/ai-for-developers-project-386.git
-cd ai-for-developers-project-386
+git clone https://github.com/ikurennyi/ai-for-developers-project-387.git
+cd ai-for-developers-project-387
 mise trust mise.toml
 mise install
 mise exec -- gem install bundler -v 4.0.22 --no-document
