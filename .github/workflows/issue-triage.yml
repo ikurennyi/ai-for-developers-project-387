@@ -20,7 +20,7 @@ jobs:
       contents: read
       issues: write
     env:
-      OPENCODE_MODEL: opencode/glm-5.3-flash-free
+      OPENCODE_MODEL: opencode/deepseek-v4.1-flash-free
       GH_REPO: ${{ github.repository }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
       TRIAGE_PROMPT: |
