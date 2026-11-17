@@ -72,7 +72,7 @@ class WorkflowTest < Minitest::Test
     assert_includes install.fetch("run"), "@opencode/cli@2.3.0"
 
     model = steps.find { |step| step["name"] == "Run read-only OpenCode agent" }
-    assert_includes model.fetch("run"), "opencode/big-pickle"
+    assert_includes model.fetch("run"), "opencode/glm-5.3-flash-free"
     assert_includes model.fetch("run"), "--archived"
     assert_equal ["OPENCODE_API_KEY"], model.fetch("env").keys
     refute model.fetch("env").key?("GH_TOKEN")

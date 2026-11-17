@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           opencode run --standalone --archived \
-            --model opencode/big-pickle \
+            --model opencode/glm-5.3-flash-free \
             --agent github-explainer \
             "$(cat "$OPENCODE_PROMPT_FILE")" \
             > "$RUNNER_TEMP/opencode-response.md"
