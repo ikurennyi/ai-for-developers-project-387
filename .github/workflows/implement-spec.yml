@@ -114,12 +114,22 @@ jobs:
         if: steps.model.outputs.verdict == 'success'
         run: node policy/tooling/agent-control.mjs patch candidate
       - name: Save immutable run-scoped implementation evidence
+        id: evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: implementation-${{ github.run_attempt }}
           path: ${{ runner.temp }}/implementation
           if-no-files-found: error
+      - name: Bind publication to this trusted producer log
+        env:
+          ARTIFACT_ID: ${{ steps.evidence.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.evidence.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          test -n "$ARTIFACT_ID"
+          test -n "$ARTIFACT_DIGEST"
+          echo "agent-evidence:$ARTIFACT_ID:$ARTIFACT_DIGEST"
 
   verify:
     needs: implement
@@ -201,7 +211,7 @@ jobs:
           BUDGET_DECISION: ${{ needs.implement.outputs.decision }}
           MODEL_VERDICT: ${{ needs.implement.outputs.verdict }}
           PATCH_RESULT: ${{ needs.implement.outputs.patch_result }}
-          LAST_SHA: ${{ needs.implement.outputs.sha }}
+          LAST_SHA: ${{ needs.implement.outputs.sha || github.sha }}
         run: |
           set -euo pipefail
           verdict=infra

@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { approvalValid, budgetDecision, collectBudget, protectedPath, routeCommand, trustedPullRequest } from "../tooling/agent-policy.mjs"
+import { approvalValid, budgetDecision, collectBudget, protectedPath, routeCommand, trustedPullRequest, verifiedArtifact } from "../tooling/agent-policy.mjs"
 
 const event = (body, pr = false, type = "User") => ({
   action: "created",
@@ -110,4 +110,15 @@ test("implementation and publisher share a protected policy/credentials path bou
   for (const file of ["frontend/src/views/Calendar.vue", "backend/app/models/booking.rb", "frontend/browser/calendar.spec.ts"]) {
     assert.equal(protectedPath(file), false, file)
   }
+})
+
+test("publication refuses a deleted/replaced artifact even if its run/name is reused", () => {
+  const digest = "a".repeat(64)
+  const artifact = { id: 70, name: "implementation-1", digest: `sha256:${digest}`, expired: false }
+  const log = `2026-11-17T18:00:00Z agent-evidence:70:${digest}\n`
+  assert.equal(verifiedArtifact([artifact], "implementation-1", log), artifact)
+  assert.throws(() => verifiedArtifact([{ ...artifact, id: 71 }], "implementation-1", log))
+  assert.throws(() => verifiedArtifact([{ ...artifact, digest: `sha256:${"b".repeat(64)}` }], "implementation-1", log))
+  assert.throws(() => verifiedArtifact([artifact], "implementation-1", ""))
+  assert.throws(() => verifiedArtifact([artifact], "implementation-1", log + log))
 })

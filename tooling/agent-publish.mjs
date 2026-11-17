@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { execFileSync } from "node:child_process"
-import { github, trustedPullRequest, approvalValid, protectedPath } from "./agent-policy.mjs"
+import { github, trustedPullRequest, approvalValid, protectedPath, verifiedArtifact } from "./agent-policy.mjs"
 
 const repo = process.env.GITHUB_REPOSITORY
 const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"))
@@ -23,11 +23,14 @@ try {
       !["issue_comment", "pull_request_review_comment"].includes(run.event) ||
       run.status !== "completed" || run.conclusion !== "success") throw new Error("Implementation/check run is not successful")
   // Download a single immutable Actions artifact from the exact successful attempt.
-  const artifacts = (await github.paginate(`repos/${repo}/actions/runs/${runId}/artifacts`, "artifacts"))
-    .filter((item) => item.name === `implementation-${run.run_attempt}` && !item.expired)
-  if (artifacts.length !== 1) throw new Error("Missing/ambiguous implementation artifact")
+  const jobs = await github.paginate(`repos/${repo}/actions/runs/${runId}/attempts/${run.run_attempt}/jobs`, "jobs")
+  const producers = jobs.filter((job) => /^agent-admission:(?:pr|issue)-[1-9]\d*:interactive$/.test(job.name) && job.conclusion === "success")
+  if (producers.length !== 1) throw new Error("Unproven artifact producer")
+  const producerLog = execFileSync("gh", ["api", `repos/${repo}/actions/jobs/${producers[0].id}/logs`], { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 })
+  const artifacts = await github.paginate(`repos/${repo}/actions/runs/${runId}/artifacts`, "artifacts")
+  const artifact = verifiedArtifact(artifacts, `implementation-${run.run_attempt}`, producerLog)
   const archive = join(directory, "evidence.zip")
-  execFileSync("gh", ["api", `repos/${repo}/actions/artifacts/${artifacts[0].id}/zip`], {
+  execFileSync("gh", ["api", `repos/${repo}/actions/artifacts/${artifact.id}/zip`], {
     stdio: ["ignore", (await import("node:fs")).openSync(archive, "w"), "inherit"]
   })
   // Extract only the two named data files. Never execute or trust artifact scripts.

@@ -52,6 +52,18 @@ export function protectedPath(path) {
     path === "STEP-4.md" || path === "schema.png"
 }
 
+// Bind publication to the trusted producer's append-only Actions log, not just
+// an artifact name another job in the run could delete and reuse.
+export function verifiedArtifact(artifacts, name, producerLog) {
+  const markers = [...producerLog.matchAll(/\bagent-evidence:([1-9]\d*):([a-f0-9]{64})\b/g)]
+  if (markers.length !== 1) throw new Error("Unproven artifact producer")
+  const [, id, digest] = markers[0]
+  const matching = artifacts.filter((item) => String(item.id) === id && item.name === name &&
+    !item.expired && item.digest === `sha256:${digest}`)
+  if (matching.length !== 1) throw new Error("Artifact differs from trusted producer evidence")
+  return matching[0]
+}
+
 export function budgetDecision({ runs, current, mode, scope, workflowPath, historyComplete }) {
   const deny = { decision: "infra", reason: "budget_not_proven" }
   if (!historyComplete || !Array.isArray(runs) || !["interactive", "review"].includes(mode) ||
