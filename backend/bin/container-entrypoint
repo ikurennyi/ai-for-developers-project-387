@@ -1,0 +1,13 @@
+#!/usr/bin/env ruby
+if ARGV[0] == "bundle" && ARGV[2] == "puma"
+  if ENV.fetch("DATABASE_URL", "").empty?
+    warn "DATABASE_URL is missing; serving the database-configuration notice only. The application API is unavailable."
+    exec("bundle", "exec", "puma", "-b", "tcp://0.0.0.0:#{ENV.fetch("PORT", 3000)}", "config/no_database.ru")
+  end
+  %w[SECRET_KEY_BASE ADMIN_USERNAME ADMIN_PASSWORD].each do |key|
+    abort "#{key} is required" if ENV.fetch(key, "").empty?
+  end
+  system("bundle", "exec", "rails", "db:prepare", exception: true)
+  system("bundle", "exec", "rails", "db:seed", exception: true)
+end
+exec(*ARGV)

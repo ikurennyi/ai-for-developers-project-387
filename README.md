@@ -1,29 +1,179 @@
-# Календарь звонков (продолжение)
+# Календарь звонков
 
 
-[![hexlet-check](https://github.com/ikurennyi/ai-for-developers-project-387/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/ikurennyi/ai-for-developers-project-387/actions)
+[![hexlet-check](https://github.com/ikurennyi/ai-for-developers-project-386/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/ikurennyi/ai-for-developers-project-386/actions)
 
-Интегрируйте работу агентов в GitHub проект
+Разработайте совместно с ИИ сервис для бронирования календаря
 
 Учебный проект Хекслета: https://ru.hexlet.io/programs/ai-for-developers
 Как это должно работать: https://files.hexlet.app/a/2ipc5m
 
+## Первый шаг: каркас приложения
+
+- [Исходные требования шага](1-step.md).
+- [Утверждённая спецификация](https://github.com/ikurennyi/ai-for-developers-project-386/issues/1).
+- [Закреплённые инструменты](docs/toolchain.md), [локальная приёмка и открытые критерии](docs/acceptance.md).
+
+Главная страница рассказывает о сервисе; Book a meeting открывает список
+опубликованных типов встреч с сервера. Публичная ссылка открывает календарь:
+можно выбрать свободный интервал Europe/Berlin, заполнить данные гостя и явно
+подтвердить бронирование. Общая занятость атомарно защищена PostgreSQL.
+Безопасный вход администратора реализован; управление бронированиями пока отсутствует.
+Локальный прогон не подтверждает зелёный GitHub Actions: внешний CI и итоговый
+review пока не подтверждены, родительская спецификация не объявляется выполненной.
+
+## Публичный учебный деплой
+
+Приложение: [ai-for-developers-project-386-ddst.onrender.com](https://ai-for-developers-project-386-ddst.onrender.com).
+
+Сервис развёрнут на Render из корневого `Dockerfile`. Render автоматически
+передаёт web service переменную `PORT` (обычно `10000`); Dockerfile запускает
+Puma, а `backend/config/puma.rb` слушает `ENV["PORT"]`. `PORT` не нужно
+добавлять вручную. Для запуска вне Render задайте `PORT` сами; образ по умолчанию
+использует `3000`.
+
+Приложение использует отдельную PostgreSQL. `DATABASE_URL`, `SECRET_KEY_BASE`,
+`ADMIN_USERNAME` и `ADMIN_PASSWORD` задаются в настройках Render как переменные
+окружения/секреты.
+
+PostgreSQL обязательна для работы приложения. Если `DATABASE_URL` отсутствует,
+контейнер отдаёт на главной странице диагностическое сообщение о ненастроенной
+БД (для минимальной проверки запуска контейнера); API и бронирование в этом
+режиме недоступны. Это не рабочий режим деплоя — настройте `DATABASE_URL` в
+Render.
+Бронирования и настройки хранятся в PostgreSQL, поэтому рестарт/redeploy web
+service с той же БД сам по себе данные не сбрасывает. Файловая система web
+service временная. У бесплатной Render PostgreSQL срок жизни ограничен 30 днями:
+после истечения БД её данные нельзя считать постоянными; проверьте тариф и
+срок действия БД в Render Dashboard.
+
+### Подключение Render MCP в OpenCode
+
+В проектном `opencode.json` настроен официальный удалённый Render MCP endpoint.
+Чтобы авторизоваться:
+
+1. Откройте репозиторий в OpenCode и выполните `/mcps`.
+2. Выберите `render` и завершите OAuth в браузере.
+3. Убедитесь, что сервер отображается как `connected`; при запросе действий
+   укажите нужный Render workspace.
+
+OAuth-токены хранятся OpenCode вне репозитория. Не записывайте API keys или
+токены в конфигурацию проекта. Для других MCP-клиентов добавляйте
+`https://mcp.render.com/mcp` через их настройки и используйте OAuth, если он
+поддерживается.
+
 ## Стек
 
-- Разное
+- Rails API / Ruby, PostgreSQL; Vue 3, Router, TypeScript и Element Plus.
+- TypeSpec → OpenAPI 3.0 → generated Fetch SDK; RSpec и Vitest (включая Chromium).
+- mise, Docker Compose, pitchfork, hk и commitlint.
 
 ## Установка
 
-<!-- Опишите установку: клонирование, зависимости, переменные окружения -->
+Нужны [mise 2026.11.6 и закреплённые инструменты](docs/toolchain.md), работающий
+Docker Engine и системные зависимости сборки Ruby/pg (libpq, компилятор).
+mise устанавливает Docker CLI, но не Docker Engine/VM.
 
 ```bash
-git clone https://github.com/ikurennyi/ai-for-developers-project-387.git
-cd ai-for-developers-project-387
+git clone https://github.com/ikurennyi/ai-for-developers-project-386.git
+cd ai-for-developers-project-386
+mise trust mise.toml
+mise install
+mise exec -- gem install bundler -v 4.0.22 --no-document
+mise run install
+```
+
+`install` использует frozen Bundler и отдельный `npm ci` в `contracts/`,
+`frontend/`, `tooling/`, затем устанавливает Chromium. На Linux нужны также
+системные библиотеки браузера:
+
+```sh
+mise exec -- node frontend/node_modules/playwright/cli.js install --with-deps chromium
 ```
 
 ## Использование
 
-<!-- Добавьте примеры запуска и запись asciinema — именно это смотрит работодатель -->
+Для запуска приложения целиком в контейнерах из чистого checkout, с HTTPS,
+миграциями и постоянной БД: [Docker application](docs/docker.md).
+
+Для каждого checkout/worktree создайте отдельную игнорируемую конфигурацию.
+Не перезаписывайте существующий `mise.local.toml`: шаблон меняет пароль.
+
+```sh
+umask 077
+mise exec -- ruby scripts/services.rb dev:env > mise.local.toml
+# Выберите три свободных разных порта; при смене POSTGRES_PORT обновите оба URL.
+mise trust mise.local.toml
+mise run dev:validate
+mise run db:up
+mise run db:prepare
+mise run dev:start
+mise run db:seed
+mise run dev:status
+```
+
+Откройте `http://127.0.0.1:<FRONTEND_PORT>/`: страница показывает
+`API healthy: ok`, полученный через SDK и Vite proxy от Rails
+`GET /api/v1/health`. Health не доказывает подключение БД; smoke проверяет его отдельно.
+`dev:start` также сам подготавливает БД. Повторный start при занятых портах — ошибка.
+
+`mise run db:seed` создаёт отсутствующие опубликованные 15- и 30-минутные типы
+встреч. Команда безопасна для повторного запуска: она сохраняет изменения
+названий, описаний, длительности, адресов и публикации. Начальные предложения
+распознаются по постоянному служебному ключу, не по адресу.
+Данные и технические UUID хранятся в PostgreSQL, а не в памяти приложения.
+`dev:env` также генерирует локальные `ADMIN_USERNAME`/`ADMIN_PASSWORD`;
+единственный администратор создаётся при первом входе. Сохраните конфигурацию
+приватно и не перегенерируйте её для уже работающей базы.
+Публичный `GET /api/v1/meeting-types` возвращает только опубликованные предложения;
+пустой список отображается как “No meeting types available”.
+
+Календарь доступен по `/book/<slug>` и читает через generated SDK
+`GET /api/v1/meeting-types/<slug>/availability`. Скрытые и несуществующие адреса
+одинаково недоступны. Окно — сегодня и следующие 13 дат Europe/Berlin;
+расписание пн–пт 09:00–18:00, шаг стартов 15 минут.
+Выбор и Continue ничего не записывают и не резервируют; Confirm booking сохраняет
+бронирование и показывает данные встречи без обещаний отправки письма.
+Правила общей занятости: [calendar](docs/calendar.md);
+API подтверждения и границы следующих этапов: [confirmation](docs/booking-confirmation.md).
+
+```sh
+mise run dev:stop
+```
+
+Остановка сохраняет данные и затрагивает только этот worktree. Идентификаторы,
+переменные, диагностика и смена настроек описаны в [dev-services](docs/dev-services.md).
+
+## Проверки и hooks
+
+Настройка единственного администратора, ограничения попыток входа и серверная
+команда смены пароля с отзывом всех сессий: [Administrator access](docs/admin-authentication.md).
+
+```sh
+mise run check
+mise run hooks:install
+mise run hooks:test
+mise run commits:test
+mise run ci:validate
+```
+
+`check` не требует dev-сервисов или локальной конфигурации: он запускает все
+контрактные проверки, lint, форматирование, типы, RSpec, Vitest/jsdom,
+настоящий Chromium smoke и production build. Docker должен работать.
+Проверки не исправляют и не индексируют исходники.
+
+- [Все отдельные команды и failure probes](docs/checks.md).
+- [Chromium, изоляция и cleanup](docs/chromium-smoke.md).
+- [Hooks, commit ranges и CI](docs/hooks-and-ci.md). Установка hooks явная,
+  локальная для репозитория; linked worktree могут разделять hooks.
+- [Версионирование и release PR](docs/releases.md): единая версия приложения,
+  настройка отдельного токена maintainer-ом и ещё не подтверждённые внешние шаги.
+- Коммиты: Conventional Commits, например `docs: clarify local setup`;
+  ветки: `docs/short-description`, PR titles — также Conventional Commits.
+
+Приложение проверяется отдельным `.github/workflows/application-check.yml` на
+push/PR той же командой `mise run check`. Push/PR требуют отдельного разрешения;
+результаты внешнего CI не выводятся из локального успеха.
 
 ---
 
