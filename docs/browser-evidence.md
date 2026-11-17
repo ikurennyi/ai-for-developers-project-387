@@ -5,7 +5,8 @@ independent of OpenCode sessions and model keys. It checks out the event's
 `pull_request.head.sha`, records `git rev-parse HEAD` in `actual-sha.txt`, and
 fails if that differs from `expected-sha.txt`. It never substitutes GitHub's
 temporary merge commit. Checkout credentials are not persisted; the only token
-permission is `contents: read`, including for forks. No secrets are passed.
+permission in the candidate-code job is `contents: read`, including for forks.
+No model secrets are passed.
 
 The pinned PostgreSQL 18.3 service is disposable. `mise run smoke` creates its
 own random database and temporary Rails/Vite/Chromium processes, probes SQL and
@@ -32,9 +33,21 @@ Normal human pushes trigger a new PR run/artifact and cancel older runs for
 that PR. **GITHUB_TOKEN**-created PRs/pushes do not automatically cascade into
 new workflow runs. The owner must manually confirm a pending run or **re-run**
 where available. A re-run **does not update** its original event's head SHA:
-after another push, verify that a run exists for the new head; if it does not,
-stop and have the owner arrange a fresh PR event/run. Never accept an old re-run
-as fresh evidence. There is no dispatch or automatic workflow-trigger mechanism.
+after another push, verify that a run exists for the new head. Never accept an
+old re-run as fresh evidence.
+
+If no PR run exists for the new SHA, the repository owner can open **Actions →
+PR head browser evidence → Run workflow**, select the **default branch**, enter
+the open PR number in `pr`, and run it. This owner-only `workflow_dispatch`
+entrypoint resolves the PR's **live** head through the GitHub API before any
+candidate checkout. It accepts only open, same-repository PRs; forks remain
+supported by the normal `pull_request` path. Non-owner dispatches, non-owner
+re-runs of dispatches, and dispatches from another branch skip the browser job.
+The resolution job executes only inline default-branch policy, has
+`pull-requests: read`, and passes only the validated SHA—not its API token—to
+the candidate-code job. The same actual/expected SHA files and artifact naming
+apply. A PR can advance during a run: always compare to current head again.
+There is no automatic dispatch cascade or workflow-trigger API call.
 
 ## Local reproduction
 
