@@ -43,7 +43,18 @@ jobs:
           node <<'NODE'
           const fs = require("node:fs")
           const body = process.env.COMMENT_BODY ?? ""
-          const run = /(^|\s)\/(?:oc|opencode)(?=\s|$)/im.test(body)
+          async function route() {
+          // Use the executor's complete grammar: unsupported requests still get discussion.
+          const { routeCommand } = await import("./tooling/agent-policy.mjs")
+          const isPR = process.env.GITHUB_EVENT_NAME === "pull_request_review_comment" ||
+            process.env.IS_PULL_REQUEST === "true"
+          const current = {
+            action: "created",
+            comment: { body, user: { type: "User" }, author_association: "OWNER" },
+            ...(isPR ? { pull_request: {} } : { issue: {} })
+          }
+          const executor = routeCommand(current).mode !== "discussion"
+          const run = !executor && /(^|\s)\/(?:oc|opencode)(?=\s|$)/im.test(body)
           // Publication requires a whole-comment command, never a skill mention in discussion.
           const request = body.trim().match(/^\/(?:oc|opencode)[ \t]+(?:(?:запусти|продолжи)[ \t]+(?:скилл[ \t]+)?|(?:run|continue)[ \t]+(?:skill[ \t]+)?)?(to-spec|to-tickets)(?:[ \t]+(?:#[1-9]\d*|по обсуждению этого issue|по спецификации #[1-9]\d*|с уч[её]том ответов))?$/iu)
           const canPublish = process.env.GITHUB_EVENT_NAME === "issue_comment" &&
@@ -51,6 +62,8 @@ jobs:
           const stage = canPublish && request ? request[1].toLowerCase() : "discussion"
           const agent = stage === "discussion" ? "github-discussion" : "github-issues"
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `run=${run}\nagent=${agent}\nstage=${stage}\n`)
+          }
+          route().catch((error) => { console.error(error.message); process.exitCode = 1 })
           NODE
 
       - name: Install OpenCode CLI

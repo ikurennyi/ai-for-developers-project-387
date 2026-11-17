@@ -1,0 +1,30 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "snapshots": false,
+  "formatter": false,
+  "lsp": false,
+  "policies": [
+    { "action": "tool.use", "resource": "*", "effect": "deny" },
+    { "action": "tool.use", "resource": "read:/workspace/*", "effect": "allow" },
+    { "action": "tool.use", "resource": "read:/context/*", "effect": "allow" },
+    { "action": "tool.use", "resource": "edit:/workspace/*", "effect": "allow" },
+    { "action": "tool.use", "resource": "write:/workspace/*", "effect": "allow" },
+    { "action": "tool.use", "resource": "external_directory:/workspace/*", "effect": "allow" },
+    { "action": "tool.use", "resource": "external_directory:/context/*", "effect": "allow" },
+    { "action": "tool.use", "resource": "skill:implement-spec", "effect": "allow" },
+    { "action": "tool.use", "resource": "read:*/.git/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "read:*.env*", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:/workspace/.*", "effect": "deny" },
+    { "action": "tool.use", "resource": "write:/workspace/.*", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:*/AGENTS.md", "effect": "deny" },
+    { "action": "tool.use", "resource": "write:*/AGENTS.md", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:*/opencode.json*", "effect": "deny" },
+    { "action": "tool.use", "resource": "write:*/opencode.json*", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:*/tooling/agent-*", "effect": "deny" },
+    { "action": "tool.use", "resource": "write:*/tooling/agent-*", "effect": "deny" },
+    { "action": "plugin.use", "resource": "*", "effect": "deny" },
+    { "action": "mcp.use", "resource": "*", "effect": "deny" },
+    { "action": "skill.use", "resource": "*", "effect": "deny" },
+    { "action": "skill.use", "resource": "implement-spec", "effect": "allow" }
+  ]
+}
