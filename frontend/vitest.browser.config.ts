@@ -1,19 +1,15 @@
 import { defineConfig, mergeConfig } from 'vitest/config'
 import { playwright } from '@vitest/browser-playwright'
 import viteConfig from './vite.config.ts'
-import { searchForWorkspaceRoot } from 'vite'
 
 const evidenceDir =
-  process.env.SMOKE_EVIDENCE_ENABLED === '1' && process.env.SMOKE_RUNTIME_DIR
-    ? `${process.env.SMOKE_RUNTIME_DIR}/browser-evidence/${process.env.SMOKE_EVIDENCE_LABEL}`
+  process.env.SMOKE_EVIDENCE_ENABLED === '1' && process.env.SMOKE_BROWSER_EVIDENCE_DIR
+    ? `${process.env.SMOKE_BROWSER_EVIDENCE_DIR}/${process.env.SMOKE_EVIDENCE_LABEL}`
     : undefined
 
 export default mergeConfig(
   viteConfig,
   defineConfig({
-    server: evidenceDir
-      ? { fs: { allow: [searchForWorkspaceRoot(process.cwd()), evidenceDir] } }
-      : undefined,
     cacheDir: process.env.SMOKE_RUNTIME_DIR
       ? `${process.env.SMOKE_RUNTIME_DIR}/vite-cache`
       : undefined,
@@ -24,9 +20,11 @@ export default mergeConfig(
         emptyMeetingTypes: process.env.SMOKE_EMPTY_MEETING_TYPES === '1',
         occupiedCalendar: process.env.SMOKE_OCCUPIED_CALENDAR === '1',
       },
-      attachmentsDir: process.env.SMOKE_RUNTIME_DIR
-        ? `${process.env.SMOKE_RUNTIME_DIR}/attachments`
-        : undefined,
+      attachmentsDir: evidenceDir
+        ? `${evidenceDir}/attachments`
+        : process.env.SMOKE_RUNTIME_DIR
+          ? `${process.env.SMOKE_RUNTIME_DIR}/attachments`
+          : undefined,
       include: ['browser/**/*.spec.ts'],
       testTimeout: 15000,
       expect: { poll: { timeout: 10000 } },
