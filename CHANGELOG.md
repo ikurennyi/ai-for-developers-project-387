@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0](https://github.com/ikurennyi/ai-for-developers-project-387/compare/v0.4.0...v0.5.0) (2026-11-17)
+
+
+### Features
+
+* add read-only OpenCode GitHub agent ([82c8751](https://github.com/ikurennyi/ai-for-developers-project-387/commit/82c8751e42f8204d58c3da04d559d5a9213bb5aa))
+* add read-only OpenCode GitHub agent ([#3](https://github.com/ikurennyi/ai-for-developers-project-387/issues/3)) ([e23b678](https://github.com/ikurennyi/ai-for-developers-project-387/commit/e23b67874d2d100258e90da611709ddef1a613ca))
+* use free GLM model in OpenCode workflow ([c3b2e6b](https://github.com/ikurennyi/ai-for-developers-project-387/commit/c3b2e6b1547e3280a6fe011332ce8b0f4448ed6d))
+* use free GLM model in OpenCode workflow ([#7](https://github.com/ikurennyi/ai-for-developers-project-387/issues/7)) ([df40cab](https://github.com/ikurennyi/ai-for-developers-project-387/commit/df40cabf531d11c82465d19905e7de93a0e70c07))
+
 ## [0.4.0](https://github.com/ikurennyi/ai-for-developers-project-387/compare/v0.3.0...v0.4.0) (2026-11-17)
 
 
