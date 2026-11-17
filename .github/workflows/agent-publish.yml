@@ -1,0 +1,46 @@
+name: Publish verified implementation with owner permission
+"on":
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful implementation/check run ID
+        required: true
+        type: string
+      expected_sha:
+        description: Exact candidate base SHA shown in implementation evidence
+        required: true
+        type: string
+      allow_push:
+        description: Explicitly authorize push to the validated task/head branch
+        required: true
+        default: false
+        type: boolean
+      allow_pr:
+        description: Separately authorize creating a draft PR (not merge)
+        required: true
+        default: false
+        type: boolean
+permissions: {}
+concurrency:
+  group: agent-publication
+  cancel-in-progress: false
+  queue: max
+jobs:
+  publish:
+    if: github.actor == github.repository_owner && inputs.allow_push && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Publish data artifact without model or candidate-code execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tooling/agent-publish.mjs
