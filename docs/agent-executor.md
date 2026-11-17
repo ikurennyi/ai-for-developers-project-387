@@ -65,6 +65,46 @@ The profile is reusable: task numbers and approval links are runtime data.
 Infrastructure/policy edits require a separately reviewed local change; this
 agent cannot rewrite the policy that admits and accounts for its own requests.
 
+### Explicit finite issue-budget extensions
+
+The default remains three reservations. A repository owner can approve a finite
+continuation of an exhausted **issue** budget in the infrastructure source issue,
+then deliver its grant through a separately reviewed policy PR. This is not a
+reset, a new product ticket, a model change, or permission to publish/merge.
+
+`tooling/agent-budget-grants.json` is loaded relative to the trusted policy module,
+never the candidate, working directory or environment. Each grant identifies the
+repository, issue scope, interactive mode, implementation workflow, infrastructure
+source/spec/ticket, additional reservation count, approval permalink and frozen
+baseline of `(run ID, run_attempt)` pairs, including the observed refusal.
+The owner approval is fetched and checked on every request: exact author/type,
+source URL and bounded clause, with no inferred authority from other prose:
+
+```text
+Одобряю дополнение спецификации #SPEC и тикета #TICKET: 2 дополнительные интерактивные попытки для issue-N после запуска RUN_ID, без сброса истории и изменения PR-бюджетов.
+```
+
+The full paginated Actions history must prove every baseline reservation;
+server job start times additionally verify that it is the complete prefix at
+the checkpoint. Missing or ambiguous chronology fails closed.
+Reservations not in that frozen set consume the extension, including reruns of
+old run IDs, cancellations, timeouts, concurrent admissions and denied attempts.
+The baseline never advances automatically; historical refusals stay refused.
+After the finite allowance is consumed, the next request again reports
+`limit_exhausted` before CLI installation or model access. Missing/malformed
+policy, invalid approval, missing history or ambiguous matching grants fail as
+`infra`, without a candidate fallback.
+
+The approved grant for `issue-12` provides two new reservations after the four
+recorded reservations ending at run `44181583425`, per
+[owner approval](https://github.com/ikurennyi/ai-for-developers-project-387/issues/17#issuecomment-6961946957).
+`budget.json` retains the total `count` and base `limit: 3`; its `extension`
+records the additional count, limit, baseline size, checkpoint and approval.
+Other issues and both PR budgets remain unchanged (3 interactive / 3 reviews).
+The two new reservations require fresh human commands after policy integration;
+this PR never starts them automatically. Previously consumed reservations are
+not refunded, and another denial also consumes a reservation.
+
 ## Separate publication permission
 
 After inspecting the successful implementation/check run, the repository owner
