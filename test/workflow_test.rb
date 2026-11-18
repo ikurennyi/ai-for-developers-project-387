@@ -177,6 +177,8 @@ class WorkflowTest < Minitest::Test
     assert_match(/\A[^\s]+\/[^\s]+\z/, job.fetch("env").fetch("OPENCODE_MODEL"))
     assert_includes model.fetch("run"), '--model "$OPENCODE_MODEL"'
     assert_includes model.fetch("run"), "--archived"
+    assert_includes model.fetch("run"), '--file "$RUNNER_TEMP/opencode-context.md"'
+    refute_includes model.fetch("run"), '$(cat "$RUNNER_TEMP/opencode-context.md")'
     assert_equal %w[GH_TOKEN OPENCODE_AGENT OPENCODE_API_KEY REQUESTED_STAGE], model.fetch("env").keys.sort
     assert_equal "${{ steps.command.outputs.agent }}", model.fetch("env").fetch("OPENCODE_AGENT")
     assert_equal "${{ steps.command.outputs.stage }}", model.fetch("env").fetch("REQUESTED_STAGE")
