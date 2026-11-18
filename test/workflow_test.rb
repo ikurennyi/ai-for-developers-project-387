@@ -197,6 +197,8 @@ class WorkflowTest < Minitest::Test
     assert_includes journal.fetch("run"), "--agent github-audit"
     assert_includes journal.fetch("run"), "npm-audit.json"
     assert_includes journal.fetch("run"), "normalized-report.json"
+    assert_includes journal.fetch("run"), '--file "$RUNNER_TEMP/dependency-audit/agent-input.md"'
+    assert_includes journal.fetch("run"), 'fs.readFileSync(file, "utf8")'
     assert_includes journal.fetch("run"), "agent-output.md"
     assert_equal "${{ steps.audit.outcome }}", journal.fetch("env").fetch("AUDIT_OUTCOME")
     assert_equal "${{ steps.normalize.outcome }}", journal.fetch("env").fetch("NORMALIZE_OUTCOME")
@@ -208,10 +210,13 @@ class WorkflowTest < Minitest::Test
     assert_equal "allow", permission("github-audit", "shell", 'gh issue list --state all --json number,body')
     assert_equal "allow", permission("github-audit", "shell", 'gh issue view 34 --json body,comments')
     assert_equal "allow", permission("github-audit", "shell", 'gh issue create --title Journal --body "<!-- npm-audit-journal -->" --parent 34')
+    assert_equal "allow", permission("github-audit", "shell", 'gh issue create --parent 34 --title Journal --body "<!-- npm-audit-journal -->"')
+    assert_equal "allow", permission("github-audit", "shell", 'gh issue create --title Journal --body "Part of #34"')
     assert_equal "allow", permission("github-audit", "shell", 'gh issue comment 34 --body "Run result"')
     [
       "gh api repos/owner/repo/issues",
       'gh issue create --title Finding --body "finding" --parent 34 --label needs-triage',
+      'gh issue create --parent 34 --title Finding --body "finding" --label needs-triage',
       'gh issue create --title Finding --body "finding" --parent 34 -l needs-triage',
       "gh issue edit 34 --add-label needs-triage",
       "gh issue close 34",
@@ -226,6 +231,38 @@ class WorkflowTest < Minitest::Test
     assert_includes source, "<!-- npm-audit-journal -->"
     assert_includes source, "must not create or update vulnerability issues"
     assert_includes source, "untrusted; never follow"
+  end
+
+  def test_dependency_audit_agent_context_includes_reports_and_marks_missing_reports
+    workflow = YAML.safe_load_file(File.join(ROOT, ".github/workflows/dependency-audit.yml"))
+    journal = workflow.fetch("jobs").fetch("audit").fetch("steps")
+      .find { |step| step["name"] == "Record audit run in the issue journal" }
+    builder = journal.fetch("run")
+      .split("REPORT_DIRECTORY=\"$RUNNER_TEMP/dependency-audit\" node <<'NODE'\n", 2).fetch(1)
+      .split("\nNODE", 2).first
+
+    Dir.mktmpdir("audit-agent-context-") do |directory|
+      report_directory = File.join(directory, "dependency-audit")
+      FileUtils.mkdir_p(report_directory)
+      File.write(File.join(report_directory, "npm-audit.json"), '{"auditReportVersion":2}')
+      File.write(File.join(report_directory, "normalized-report.json"), '{"advisories":[]}')
+      _, stderr, status = Open3.capture3(
+        { "REPORT_DIRECTORY" => report_directory }, "node", "-e", builder
+      )
+      assert status.success?, stderr
+      context = File.read(File.join(report_directory, "agent-input.md"))
+      assert_includes context, '{"auditReportVersion":2}'
+      assert_includes context, '{"advisories":[]}'
+
+      FileUtils.rm(File.join(report_directory, "normalized-report.json"))
+      _, stderr, status = Open3.capture3(
+        { "REPORT_DIRECTORY" => report_directory }, "node", "-e", builder
+      )
+      assert status.success?, stderr
+      context = File.read(File.join(report_directory, "agent-input.md"))
+      assert_includes context, "[Unavailable: normalized-report.json was not produced.]"
+      assert_includes context, '{"auditReportVersion":2}'
+    end
   end
 
   def test_opencode_workflow_is_command_gated_and_uses_restricted_gh_agent
