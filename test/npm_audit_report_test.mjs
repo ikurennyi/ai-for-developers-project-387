@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { readFile } from "node:fs/promises"
 import { test } from "node:test"
 import { canonicalAdvisoryId, normalizeAuditReport } from "../tooling/npm-audit-report.mjs"
 
@@ -94,6 +95,22 @@ test("does not duplicate meta-vulnerability references as standalone advisories"
     }
   }))
   assert.deepEqual(report.advisories, [])
+})
+
+test("training fixture is synthetic and keeps a separate high-severity key", async () => {
+  const fixture = JSON.parse(await readFile(
+    new URL("./fixtures/npm-audit-training.json", import.meta.url),
+    "utf8"
+  ))
+  const finding = normalizeAuditReport(fixture, "training").advisories[0]
+
+  assert.equal(fixture.vulnerabilities["training-example-package"].via[0].url,
+    "https://example.invalid/training-advisory")
+  assert.match(fixture.vulnerabilities["training-example-package"].via[0].title, /synthetic/i)
+  assert.equal(finding.severity, "high")
+  assert.equal(finding.key, "training:frontend:training-example-package:npm-987654321")
+  assert.equal(finding.is_candidate, true)
+  assert.notEqual(finding.key, "real:frontend:training-example-package:npm-987654321")
 })
 
 test("rejects invalid, incomplete and ambiguous audit input", () => {

@@ -41,15 +41,23 @@ jobs:
         id: audit
         working-directory: frontend
         env:
+          AUDIT_MODE: ${{ inputs.mode }}
           REPORT_PATH: ${{ runner.temp }}/dependency-audit/npm-audit.json
         run: |
           set -euo pipefail
-          test -s package.json
-          test -s package-lock.json
-          set +e
-          npm audit --json > "$REPORT_PATH"
-          audit_status=$?
-          set -e
+          mode="${AUDIT_MODE:-real}"
+          if [ "$mode" != real ] && [ "$mode" != training ]; then mode=real; fi
+          if [ "$mode" = training ]; then
+            cp ../test/fixtures/npm-audit-training.json "$REPORT_PATH"
+            audit_status=0
+          else
+            test -s package.json
+            test -s package-lock.json
+            set +e
+            npm audit --json > "$REPORT_PATH"
+            audit_status=$?
+            set -e
+          fi
           if ! node -e '
             const fs = require("node:fs")
             const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))

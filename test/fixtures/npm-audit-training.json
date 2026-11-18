@@ -1,0 +1,49 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "training-example-package": {
+      "name": "training-example-package",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        {
+          "source": 987654321,
+          "name": "training-example-package",
+          "dependency": "training-example-package",
+          "title": "Synthetic training advisory; not a confirmed vulnerability",
+          "url": "https://example.invalid/training-advisory",
+          "severity": "high",
+          "range": "<1.0.0"
+        }
+      ],
+      "effects": [],
+      "range": "<1.0.0",
+      "nodes": [
+        "node_modules/training-example-package"
+      ],
+      "fixAvailable": {
+        "name": "training-example-package",
+        "version": "1.0.0",
+        "isSemVerMajor": false
+      }
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 1,
+      "critical": 0,
+      "total": 1
+    },
+    "dependencies": {
+      "prod": 1,
+      "dev": 0,
+      "optional": 0,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 1
+    }
+  }
+}
