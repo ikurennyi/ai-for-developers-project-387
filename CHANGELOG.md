@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.7.0](https://github.com/ikurennyi/ai-for-developers-project-387/compare/v0.6.0...v0.7.0) (2026-11-18)
+
+
+### Features
+
+* add finite issue-budget extensions ([#18](https://github.com/ikurennyi/ai-for-developers-project-387/issues/18)) ([6145548](https://github.com/ikurennyi/ai-for-developers-project-387/commit/61455486591ac206755d3903803da90655cdc039))
+* add implement-spec runner ([#18](https://github.com/ikurennyi/ai-for-developers-project-387/issues/18)) ([7ee4b15](https://github.com/ikurennyi/ai-for-developers-project-387/commit/7ee4b15b4990bc9f74a13b5c21f01927be859f99))
+* add independent read-only PR review ([#19](https://github.com/ikurennyi/ai-for-developers-project-387/issues/19)) ([b6d8c77](https://github.com/ikurennyi/ai-for-developers-project-387/commit/b6d8c77761266b64b1b693b432a906286d4a7257))
+* add npm audit training mode ([#40](https://github.com/ikurennyi/ai-for-developers-project-387/issues/40)) ([#51](https://github.com/ikurennyi/ai-for-developers-project-387/issues/51)) ([4b5b67e](https://github.com/ikurennyi/ai-for-developers-project-387/commit/4b5b67e83d2a4e1203450823be3505cfd3fb3f1e))
+* add scheduled frontend audit workflow ([#36](https://github.com/ikurennyi/ai-for-developers-project-387/issues/36)) ([3f5c641](https://github.com/ikurennyi/ai-for-developers-project-387/commit/3f5c641cb91be7ceb3ecfcb309a15e497835c7e1))
+* bound PR review context and budget ([#19](https://github.com/ikurennyi/ai-for-developers-project-387/issues/19)) ([#33](https://github.com/ikurennyi/ai-for-developers-project-387/issues/33)) ([3e65620](https://github.com/ikurennyi/ai-for-developers-project-387/commit/3e65620657dd0c688b40a70695712eb1500aaf77))
+* deduplicate audit finding issues ([#39](https://github.com/ikurennyi/ai-for-developers-project-387/issues/39)) ([#49](https://github.com/ikurennyi/ai-for-developers-project-387/issues/49)) ([16f3f17](https://github.com/ikurennyi/ai-for-developers-project-387/commit/16f3f1712349c3c6fdfcbbf465c0d0e9b9ae0c50))
+* highlight available calendar intervals ([#14](https://github.com/ikurennyi/ai-for-developers-project-387/issues/14)) ([e8181da](https://github.com/ikurennyi/ai-for-developers-project-387/commit/e8181da3a0d09a227b444aa831a4eea2b00a143c))
+* integrate browser head evidence ([#20](https://github.com/ikurennyi/ai-for-developers-project-387/issues/20)) ([ec0b361](https://github.com/ikurennyi/ai-for-developers-project-387/commit/ec0b361ada3ea9881b24e4f7968d4c483f8995b0))
+* integrate independent PR review ([#19](https://github.com/ikurennyi/ai-for-developers-project-387/issues/19)) ([e6a363d](https://github.com/ikurennyi/ai-for-developers-project-387/commit/e6a363d0cc5501bda3059b8a102bc9218b24cbd8))
+* integrate STEP-4 agent workflows ([#17](https://github.com/ikurennyi/ai-for-developers-project-387/issues/17)) ([0e5e719](https://github.com/ikurennyi/ai-for-developers-project-387/commit/0e5e719898d4d1a0621a606256650ee5dd186781))
+* normalize npm audit reports ([#37](https://github.com/ikurennyi/ai-for-developers-project-387/issues/37)) ([#43](https://github.com/ikurennyi/ai-for-developers-project-387/issues/43)) ([47178c4](https://github.com/ikurennyi/ai-for-developers-project-387/commit/47178c4852720caafa2d7d76bae7c06c08a6cce5))
+* record audit runs in journal ([#38](https://github.com/ikurennyi/ai-for-developers-project-387/issues/38)) ([#44](https://github.com/ikurennyi/ai-for-developers-project-387/issues/44)) ([35f3966](https://github.com/ikurennyi/ai-for-developers-project-387/commit/35f396649e7f8b6a8aa107b07a11917ed7458789))
+* retain exact PR head browser evidence ([#20](https://github.com/ikurennyi/ai-for-developers-project-387/issues/20)) ([a2036eb](https://github.com/ikurennyi/ai-for-developers-project-387/commit/a2036eb5a4750498bbc6759890694d347acf8dd4))
+
+
+### Bug Fixes
+
+* allow owner-requested live head browser evidence ([#20](https://github.com/ikurennyi/ai-for-developers-project-387/issues/20)) ([f30843b](https://github.com/ikurennyi/ai-for-developers-project-387/commit/f30843bac199e54aaaece1c5c8a3464cda71e11d))
+* attach audit reports to agent context ([#38](https://github.com/ikurennyi/ai-for-developers-project-387/issues/38)) ([#48](https://github.com/ikurennyi/ai-for-developers-project-387/issues/48)) ([30ceeaf](https://github.com/ikurennyi/ai-for-developers-project-387/commit/30ceeaf29ea09b2dd2ea91dda93ed551ab6a40b4))
+* bind published artifacts to trusted producer ([#18](https://github.com/ikurennyi/ai-for-developers-project-387/issues/18)) ([b5b6346](https://github.com/ikurennyi/ai-for-developers-project-387/commit/b5b6346976d72736bd497c52d239dafc1a7e72e4))
+* bound browser evidence attachment paths ([#20](https://github.com/ikurennyi/ai-for-developers-project-387/issues/20)) ([0194421](https://github.com/ikurennyi/ai-for-developers-project-387/commit/0194421db4970ccf367be0af8e06ccf395eadd8a))
+* bound review calls and classify publisher verdicts ([#19](https://github.com/ikurennyi/ai-for-developers-project-387/issues/19)) ([f05a141](https://github.com/ikurennyi/ai-for-developers-project-387/commit/f05a1411b2a9456a5dc8eae6eaa7a4f689b4ecba))
+* enforce approval and isolate verification verdicts ([#18](https://github.com/ikurennyi/ai-for-developers-project-387/issues/18)) ([279db9b](https://github.com/ikurennyi/ai-for-developers-project-387/commit/279db9b94276d5125a18ce2d95b8361ac3e6848a))
+* handle initial trusted reviewer installation ([#19](https://github.com/ikurennyi/ai-for-developers-project-387/issues/19)) ([79fbb05](https://github.com/ikurennyi/ai-for-developers-project-387/commit/79fbb051111635ddce35d5f916e9669264592f13))
+* integrate manual browser evidence entrypoint ([#20](https://github.com/ikurennyi/ai-for-developers-project-387/issues/20)) ([db45067](https://github.com/ikurennyi/ai-for-developers-project-387/commit/db4506714f17526c746f236bcb2e742a5fe06d1e))
+* integrate portable browser trace evidence ([#20](https://github.com/ikurennyi/ai-for-developers-project-387/issues/20)) ([7bed833](https://github.com/ikurennyi/ai-for-developers-project-387/commit/7bed833cd27096e3259ee0ad82ce3ddcf6b1bd3e))
+* integrate reviewer failure handling ([#19](https://github.com/ikurennyi/ai-for-developers-project-387/issues/19)) ([bf39a75](https://github.com/ikurennyi/ai-for-developers-project-387/commit/bf39a7583b8ba6aaf22141d305294f471bdc11b7))
+* isolate and generalize approved executor ([#18](https://github.com/ikurennyi/ai-for-developers-project-387/issues/18)) ([0f6fb93](https://github.com/ikurennyi/ai-for-developers-project-387/commit/0f6fb9371ae55a0330513ee9a203da27315f098a))
+* pass discussion context as file ([#17](https://github.com/ikurennyi/ai-for-developers-project-387/issues/17)) ([#32](https://github.com/ikurennyi/ai-for-developers-project-387/issues/32)) ([7a1a3fc](https://github.com/ikurennyi/ai-for-developers-project-387/commit/7a1a3fc5c598cf398b46f6d2fa8de9dd2da917f4))
+* sandbox read-only reviewer configuration ([#19](https://github.com/ikurennyi/ai-for-developers-project-387/issues/19)) ([98452c8](https://github.com/ikurennyi/ai-for-developers-project-387/commit/98452c85b5a8c0aba2653f96df5fed6ab6b3e131))
+* share safe snapshot validation with reviewer ([#19](https://github.com/ikurennyi/ai-for-developers-project-387/issues/19)) ([f2bc810](https://github.com/ikurennyi/ai-for-developers-project-387/commit/f2bc81073f944c7c52244039ee10fe1fcf596404))
+* validate protected snapshot skill aliases ([#18](https://github.com/ikurennyi/ai-for-developers-project-387/issues/18)) ([a356b70](https://github.com/ikurennyi/ai-for-developers-project-387/commit/a356b706fd9615c77611090822e10cd8397e5b6c))
+* validate protected snapshot skill aliases ([#18](https://github.com/ikurennyi/ai-for-developers-project-387/issues/18)) ([1893e24](https://github.com/ikurennyi/ai-for-developers-project-387/commit/1893e248f67b4a3ed5cdb17c26e20c061a6da1ac))
+
 ## [0.6.0](https://github.com/ikurennyi/ai-for-developers-project-387/compare/v0.5.0...v0.6.0) (2026-11-17)
 
 
