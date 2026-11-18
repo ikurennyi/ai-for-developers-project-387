@@ -34,11 +34,12 @@ The lint and formatting commands contain no fix/write flags.
 `npm ci` succeeded from the module lockfile. Lint, Prettier check, strict vue-tsc,
 Vitest (2 tests) and production build passed independently of a backend.
 
-Initial generator versions reported 16 npm audit findings, including high Vite
-advisories. Patched exact Vite/Vitest pins remove the high findings. `npm ci`
-still reports 13 moderate development-tool dependency findings (ESLint,
-typescript-eslint, test-utils chains); no forced major downgrade or unsafe
-transitive override was applied. npm also warns about the optional macOS
+Historical dependency snapshot: initial generator versions reported 16 npm audit
+findings, including high Vite advisories. Patched exact Vite/Vitest pins removed
+the high findings. At the time of this verification, `npm ci` reported 13
+moderate development-tool dependency findings (ESLint, typescript-eslint,
+test-utils chains); this is not a current count. No forced major downgrade or
+unsafe transitive override was applied. npm also warned about the optional macOS
 `fsevents@2.3.3` install script. No `--force`/`--legacy-peer-deps` was used.
 
 No root task aliases, lifecycle port validation, generated SDK or live API proxy

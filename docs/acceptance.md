@@ -35,8 +35,9 @@ Follow [README](../README.md) for the runnable sequence and
 1. `mise trust mise.toml`, `mise install`, explicit Bundler installation and
    `mise run install` succeeded. Tools/gems/browser already available on this
    machine were reused; each npm project ran `npm ci` in this fresh worktree.
-   Frontend npm audit reported **13 moderate advisories**; contracts/tooling
-   reported none. No audit fix or lockfile change was made.
+   Historical install snapshot (2026-11-11): frontend npm audit reported
+   **13 moderate advisories**; contracts/tooling reported none. This is not a
+   current count. No audit fix or lockfile change was made.
 2. Generated private `mise.local.toml`, selected distinct ports 3110/5110/5510
    (including both DB URLs), trusted it and ran `dev:validate`, `db:up`,
    `db:prepare`, `dev:start`, `dev:status`: all succeeded. Worktree project was
@@ -147,7 +148,8 @@ simulation is not Linux or GitHub Actions evidence. Raw logs under the approved
 ### Post-fix retest evidence
 
 - `mise run install` passed with mandatory tooling installation; lockfiles were
-  unchanged. The existing frontend audit still reports 13 moderate advisories.
+  unchanged. The frontend audit reported 13 moderate advisories at this
+  historical verification; the current count comes from a fresh audit.
 - Two explicit `mise run check` invocations passed after fixes: contracts,
   RuboCop, frontend lint/format/types, **9 RSpec examples**, **3 jsdom tests**,
   **1 real Chromium test**, and production build each time. SHA-256 source/file
@@ -189,7 +191,8 @@ After both final reviews, a fresh acceptance implementer created branch
 `/private/var/folders/p9/6byhfhnd78sdncx7j259p8hw0000gn/T/opencode/scaffold-final-review-acceptance`
 at `35cea18f4f3a910ce2d48c555b52421e095319cf`, verifying integration ancestry.
 On 2026-11-11, `mise run install` succeeded with frozen dependencies (the same
-13 moderate frontend audit advisories remain; no audit fix was run).
+13 moderate frontend audit advisories were reported in this historical run; no
+audit fix was run. This is not a current count).
 
 Two subsequent actual `mise run check` invocations both exited zero: contracts
 and reproducibility/drift/SDK checks, RuboCop (35 files), frontend lint/format/
