@@ -109,7 +109,7 @@ run = "ruby test/commit_ranges_test.rb"
 
 [tasks."ci:validate"]
 description = "Validate application, agent, and release workflows and policies; never modify Hexlet"
-run = ["actionlint -ignore 'unexpected key \"queue\" for \"concurrency\" section' .github/workflows/application-check.yml .github/workflows/opencode.yml .github/workflows/implement-spec.yml .github/workflows/agent-publish.yml .github/workflows/agent-review.yml .github/workflows/browser-evidence.yml .github/workflows/issue-triage.yml .github/workflows/release-please.yml", "ruby test/workflow_test.rb", "ruby test/release_config_test.rb", "ruby test/review_workflow_test.rb", "ruby test/browser_workflow_test.rb", "node --test test/agent_policy_test.mjs test/agent_control_test.mjs"]
+ run = ["actionlint -ignore 'unexpected key \"queue\" for \"concurrency\" section' .github/workflows/application-check.yml .github/workflows/opencode.yml .github/workflows/implement-spec.yml .github/workflows/agent-publish.yml .github/workflows/agent-review.yml .github/workflows/browser-evidence.yml .github/workflows/issue-triage.yml .github/workflows/release-please.yml .github/workflows/dependency-audit.yml", "ruby test/workflow_test.rb", "ruby test/release_config_test.rb", "ruby test/review_workflow_test.rb", "ruby test/browser_workflow_test.rb", "node --test test/agent_policy_test.mjs test/agent_control_test.mjs"]
 
 [tasks."contracts:generate"]
 dir = "contracts"

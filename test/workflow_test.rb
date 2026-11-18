@@ -136,6 +136,52 @@ class WorkflowTest < Minitest::Test
     assert_equal "postgresql://ci:ci-ephemeral@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/scaffold_ci", aggregate.fetch("env").fetch("DATABASE_URL")
   end
 
+  def test_dependency_audit_workflow_contract
+    workflow = YAML.safe_load_file(File.join(ROOT, ".github/workflows/dependency-audit.yml"))
+    events = workflow.fetch("on")
+    assert_equal ["23 1 * * *"], events.fetch("schedule").map { |entry| entry.fetch("cron") }
+    assert_equal(
+      {
+        "inputs" => {
+          "mode" => {
+            "description" => "Audit mode", "required" => true, "type" => "choice",
+            "options" => %w[real training], "default" => "real"
+          }
+        }
+      },
+      events.fetch("workflow_dispatch")
+    )
+    refute workflow.key?("timezone")
+    assert_equal({ "contents" => "read", "issues" => "write" }, workflow.fetch("permissions"))
+    assert_equal false, workflow.fetch("concurrency").fetch("cancel-in-progress")
+
+    job = workflow.fetch("jobs").fetch("audit")
+    assert_equal 15, job.fetch("timeout-minutes")
+    assert_includes job.fetch("if"), "github.event.repository.default_branch"
+    steps = job.fetch("steps")
+    steps.select { |step| step.key?("uses") }.each do |step|
+      assert_match(/@[a-f0-9]{40}\z/, step.fetch("uses"))
+    end
+    checkout = steps.find { |step| step.fetch("uses", "").start_with?("actions/checkout@") }
+    assert_equal "${{ github.event.repository.default_branch }}", checkout.fetch("with").fetch("ref")
+    assert_equal false, checkout.fetch("with").fetch("persist-credentials")
+
+    audit = steps.find { |step| step["name"] == "Run npm audit and save the complete report" }
+    assert_equal "frontend", audit.fetch("working-directory")
+    assert_includes audit.fetch("run"), "npm audit --json"
+    assert_includes audit.fetch("run"), "package-lock.json"
+    refute_includes audit.fetch("run"), "npm ci"
+    refute_includes audit.fetch("run"), "npm install"
+    refute_includes audit.fetch("run"), "npm audit fix"
+
+    upload = steps.find { |step| step["name"] == "Upload audit report and metadata" }
+    assert_equal 14, upload.fetch("with").fetch("retention-days")
+    assert_includes upload.fetch("with").fetch("name"), "${{ github.run_id }}"
+    assert_equal "always()", upload.fetch("if")
+    assert_includes upload.fetch("with").fetch("path"), "runner.temp"
+    refute_includes workflow.to_json, "timezone:"
+  end
+
   def test_opencode_workflow_is_command_gated_and_uses_restricted_gh_agent
     workflow = YAML.safe_load_file(File.join(ROOT, ".github/workflows/opencode.yml"))
     assert_equal(
