@@ -83,7 +83,7 @@ class ReviewWorkflowTest < Minitest::Test
     assert_includes policy.fetch("if"), "github.repository_owner"
     assert_includes policy.fetch("if"), "github-actions[bot]"
     refute_includes policy.fetch("if"), "!= 'Bot'"
-    assert_equal 15, job.fetch("timeout-minutes")
+    assert_equal 25, job.fetch("timeout-minutes")
   end
 
   def test_candidate_cannot_supply_policies_or_model_tools_and_secret
@@ -209,7 +209,7 @@ class ReviewWorkflowTest < Minitest::Test
     publisher = steps.last
     assert_includes publisher.fetch("if"), "always()"
     assert_equal %w[CONTEXT_OUTCOME GH_TOKEN INSTALL_OUTCOME JOB_STATUS MODEL_OUTCOME MODEL_STARTED MODEL_VERDICT], publisher.fetch("env").keys.sort
-    assert_includes steps.find { |s| s["id"] == "model" }.fetch("run"), "timeout --signal=TERM --kill-after=20s 10m"
+    assert_includes steps.find { |s| s["id"] == "model" }.fetch("run"), "timeout --signal=TERM --kill-after=20s 20m"
   end
 
   def test_review_criteria_and_pr_template_make_evidence_and_recovery_explicit
@@ -500,7 +500,7 @@ class ReviewWorkflowTest < Minitest::Test
           refute_includes values, "started=true"
         else
           assert_includes values, "started=true"
-          assert_equal ["--signal=TERM", "--kill-after=20s", "10m"], File.readlines(File.join(dir, "timeout-args"), chomp: true)
+          assert_equal ["--signal=TERM", "--kill-after=20s", "20m"], File.readlines(File.join(dir, "timeout-args"), chomp: true)
           unless extra.key?("FIXTURE_TIMEOUT_EXIT")
             args = File.read(File.join(dir, "docker-args"))
             assert_includes args, "dst=/workspace,readonly"
