@@ -78,6 +78,55 @@ export function normalizeAuditReport(input, mode = "real") {
   }
 }
 
+export const auditStateMarker = "<!-- npm-audit-state "
+
+export function formatAuditStateMarker({ key, severity, fixed_version }) {
+  if (typeof key !== "string" || key.length === 0 ||
+      !severities.has(severity) ||
+      (fixed_version !== null && typeof fixed_version !== "string")) {
+    throw new Error("Invalid npm audit state")
+  }
+  return `${auditStateMarker}${JSON.stringify({ key, severity, fixed_version })} -->`
+}
+
+export function parseAuditStateMarker(text) {
+  if (typeof text !== "string") return null
+  const matches = [...text.matchAll(/<!-- npm-audit-state (\{[^\n]*\}) -->/gu)]
+  if (matches.length === 0) return null
+  try {
+    const state = JSON.parse(matches.at(-1)[1])
+    if (typeof state.key !== "string" || !severities.has(state.severity) ||
+        (state.fixed_version !== null && typeof state.fixed_version !== "string")) return null
+    return state
+  } catch {
+    return null
+  }
+}
+
+export function latestPublishedAuditState(body, comments = []) {
+  const candidates = comments
+    .filter((comment) => comment && typeof comment.createdAt === "string")
+    .map((comment) => ({ state: parseAuditStateMarker(comment.body), createdAt: comment.createdAt }))
+    .filter(({ state }) => state)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  return candidates.at(-1)?.state ?? parseAuditStateMarker(body)
+}
+
+export function decideAuditFinding(matches, finding) {
+  if (!finding || !finding.is_candidate || !["high", "critical"].includes(finding.severity)) {
+    return { action: "ignore" }
+  }
+  if (!Array.isArray(matches)) throw new Error("Issue matches must be an array")
+  if (matches.length > 1) return { action: "ambiguous" }
+  if (matches.length === 0) return { action: "create" }
+  const previous = matches[0]
+  if (!previous || previous.key !== finding.key) return { action: "ambiguous" }
+  if (previous.severity === finding.severity && previous.fixed_version === finding.fixed_version) {
+    return { action: "unchanged" }
+  }
+  return { action: "comment" }
+}
+
 async function main() {
   const [inputPath, outputPath, mode = "real"] = process.argv.slice(2)
   if (!inputPath || !outputPath) {
