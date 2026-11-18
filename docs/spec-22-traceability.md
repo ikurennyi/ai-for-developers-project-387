@@ -103,8 +103,9 @@ Earlier baseline verification is not substituted for a run of these changes.
 
 - The regression was red before the model change: 103 PostgreSQL examples,
   one failure preserving mixed whitespace ending in U+FEFF instead of `""`.
-- Frozen installation succeeded; existing frontend pins report 13 moderate npm
-  advisories. No dependency upgrade/audit-fix or external/shared secret changes.
+- Frozen installation succeeded; existing frontend pins reported 13 moderate
+  npm advisories in this historical run. This is not a current count. No
+  dependency upgrade/audit-fix or external/shared secret changes.
 - Full local `mise run check` passed, then passed on repeat, and passed again
   after the verification-harness repairs below: **103 real PostgreSQL examples,
   zero failures**, two jsdom tests, all real browser scenarios (including the

@@ -158,8 +158,9 @@ upstream commit parsing/versioning pass: the six table cells above plus a
 - `mise run check` passes all nine gates: 9 RSpec examples against real isolated
 PostgreSQL, 2 jsdom tests, 1 real Chromium test, contract regeneration/lint/types,
 application lint/format/types and production build.
-- Frozen installation succeeds. The existing frontend dependency audit reports
-13 moderate advisories; no audit fix or dependency/lockfile change was made.
+- Frozen installation succeeds. In this historical verification, the frontend
+  dependency audit reported 13 moderate advisories; this is not a current count.
+  No audit fix or dependency/lockfile change was made.
 
 **External behavior remains unverified and blocked on maintainer provisioning
 and separately authorized push/PR/merge.** No token was provisioned, repository

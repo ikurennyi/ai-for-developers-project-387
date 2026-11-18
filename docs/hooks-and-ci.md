@@ -89,8 +89,9 @@ Local verification on macOS arm64 (2026-11-11):
   service-port expression; the corrected string-key expression passes.
 - `mise run install` and the full `mise run check` pass (9 RSpec examples,
   3 jsdom tests, 1 real Chromium test, all static gates and production build).
-  The inherited frontend dependency audit still reports 13 moderate advisories;
-  tooling reports none. No audit fix or unrelated lockfile update was performed.
+  The historical install reported 13 moderate frontend advisories; tooling
+  reported none. This is not a current count. No audit fix or unrelated lockfile
+  update was performed.
 
 **External criterion remains unchecked:** no authorized push or GitHub Actions
 run has occurred, so green Linux/GitHub Actions execution is **unconfirmed**.

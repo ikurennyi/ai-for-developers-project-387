@@ -68,8 +68,9 @@ On macOS arm64, Docker Engine 29.9.3 and the pinned toolchain:
 - Red: the public install/check commands were absent; the initial CLI failure
   test failed before implementation.
 - `mise run install` installed all current lockfiles and Chromium successfully.
-  npm reported **13 moderate frontend advisories**; pins were not changed and no
-  audit-fix operation was run. An audit gate is not part of this task's spec.
+  In this historical run, npm reported **13 moderate frontend advisories**; pins
+  were not changed and no audit-fix operation was run. This is not a current
+  count. An audit gate was not part of that task's spec.
 - `mise run check:test` passed **13 real failure probes**, each returning exit 1:
   TypeSpec unresolved type, vacuum invalid operation ID, OpenAPI drift, SDK
   drift, SDK strict typing, Ruby syntax via RuboCop, ESLint banned suppression,

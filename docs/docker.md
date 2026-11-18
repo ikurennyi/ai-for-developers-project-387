@@ -192,7 +192,8 @@ external GitHub Actions, a public deployment, or completion of parent #22.
   browser acceptance. Final baseline `8e095ee` passed the entire aggregate with
   **102 PostgreSQL RSpec examples, 0 failures**, all Chromium/application scenarios
   (including retry and recovery), and the production build.
-  Existing npm pins still report 13 moderate frontend
-  advisories; no dependency upgrade or audit-fix was performed.
+  At this historical verification, existing npm pins reported 13 moderate
+  frontend advisories; this is not a current count. No dependency upgrade or
+  audit-fix was performed.
 - External GitHub Actions/Hexlet, public deployment and parent-spec completion
   remain unconfirmed. The protected Hexlet workflow was not changed.
