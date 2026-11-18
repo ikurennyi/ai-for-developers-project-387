@@ -21,10 +21,15 @@ skill aliases are allowed; unsafe links fail before model access. See
 validator is `infra`, never permission to use a validator from the candidate.
 Checkouts retain no Git credentials. Only the model step receives
 `OPENCODE_API_KEY`; it receives no GH_TOKEN. A separate trusted collector reads
-the PR, paginated discussion/reviews/files, recursively linked same-repository
-issues and approval comments, and exact-SHA checks/statuses/Actions evidence.
-Collection is bounded at 40 linked issues; unavailable or omitted context and
-patches are explicitly reported as gaps, never fabricated approval/success.
+the PR diff, changed-file list, exact-SHA checks/statuses/Actions evidence and
+only the source/spec/tickets/approval named in the trusted provenance marker in
+the PR body. It fetches discussions only for those explicitly linked issues; it
+does not crawl PR comments or recursively follow references from issue discussions.
+Review starts at changed files and opens further candidate sources only to verify
+a specific requirement. The serialized context is limited to 2 MiB; when it
+exceeds that limit, the collector omits the full payload and records an evidence
+gap rather than silently truncating or treating the review as complete.
+Unavailable linked material and omitted patches are also explicit gaps.
 
 The shared `tooling/agent-policy.mjs` owns trust and Actions-history budgeting;
 `tooling/agent-review.mjs` is only the review adapter. Same-repository trusted
@@ -69,13 +74,15 @@ policy SHA is pinned for the actual review job.
 
 ### Normal operation
 
-The review budget is **three admitted attempts per PR**, independent of the
-executor's three interactive attempts. All workflow-run pages and every attempt's
+The review budget is **five admitted attempts per PR**, independent of the
+executor's three interactive attempts. Review and interactive counts are separate;
+exhausting either mode does not consume or deny the other. All workflow-run pages and every attempt's
 jobs prove admission, including cancelled/timed-out runs and re-runs. The dynamic
 job name `agent-admission:pr-N:review` reserves an attempt. The current attempt
 must appear exactly once; incomplete history fails closed before model install.
 Conservative reservation may consume budget even when a model never starts.
-Exhaustion posts `limit_exhausted`; unprovable history posts `infra`.
+Exhaustion posts `limit_exhausted`; unprovable history posts `infra`. The sixth
+review attempt is denied before CLI installation or model access.
 
 Concurrency is distinct from the interactive queue: one review per PR with
 `cancel-in-progress: true`, a 15-minute job timeout and a final SHA check.

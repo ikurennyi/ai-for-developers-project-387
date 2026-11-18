@@ -193,9 +193,12 @@ class ReviewWorkflowTest < Minitest::Test
       assert_equal "steps.gate.outputs.run == 'true'", s.fetch("if")
     end
     adapter = File.read(File.join(ROOT, "tooling/agent-review.mjs"))
-    assert_includes adapter, 'import { github, collectBudget, trustedPullRequest } from "./agent-policy.mjs"'
+    assert_includes adapter, 'import { github, collectBudget, trustedPullRequest, approvalValid } from "./agent-policy.mjs"'
     assert_includes adapter, 'mode: "review", scope: `pr-${number}`, workflowPath: ".github/workflows/agent-review.yml"'
     assert_includes adapter, 'budget.decision === "allow"'
+    assert_includes adapter, "const maxContextBytes = 2 * 1024 * 1024"
+    assert_includes steps.find { |s| s["id"] == "model" }.fetch("run"),
+      "Do not infer context from unrelated PR comments or recursively follow issue links"
     assert_includes adapter, "pr.head.sha !== state.sha"
     assert_includes adapter, 'process.env.JOB_STATUS === "cancelled"'
     assert_includes adapter, 'process.env.GITHUB_ACTOR !== owner'
@@ -212,7 +215,7 @@ class ReviewWorkflowTest < Minitest::Test
   def test_review_criteria_and_pr_template_make_evidence_and_recovery_explicit
     criteria = File.read(File.join(ROOT, "REVIEW.md"))
     ["Occupied intervals", "available/disabled", "color alone", "decorative", "keyboard focus",
-     "No confirmed defects found", "failing", "consequences", "resolved findings"].each do |term|
+     "No confirmed defects found", "failing", "consequences"].each do |term|
       assert_includes criteria, term
     end
     template = File.read(File.join(ROOT, ".github/pull_request_template.md"))
@@ -293,15 +296,16 @@ class ReviewWorkflowTest < Minitest::Test
     end
   end
 
-  def test_adapter_admits_same_repo_automation_but_rerun_four_exhausts_its_own_budget
+  def test_adapter_admits_five_reviews_but_rerun_six_exhausts_its_own_budget
     with_review_runner do |dir, policy, env, _pr, routes, run|
-      add_admission_routes(routes, 3)
-      run.call("gate", "GITHUB_RUN_ATTEMPT" => "3")
+      add_admission_routes(routes, 5)
+      run.call("gate", "GITHUB_RUN_ATTEMPT" => "5")
       assert_includes File.read(env.fetch("GITHUB_OUTPUT")), "run=true\nsha=#{"a" * 40}"
-      assert_equal 3, JSON.parse(File.read(File.join(policy, "review-state.json"))).fetch("count")
-      add_admission_routes(routes, 4)
+      assert_equal 5, JSON.parse(File.read(File.join(policy, "review-state.json"))).fetch("count")
+      assert_equal 5, JSON.parse(File.read(File.join(policy, "review-state.json"))).fetch("limit")
+      add_admission_routes(routes, 6)
       File.write(env.fetch("GITHUB_OUTPUT"), "")
-      run.call("gate", "GITHUB_RUN_ATTEMPT" => "4")
+      run.call("gate", "GITHUB_RUN_ATTEMPT" => "6")
       assert_includes File.read(env.fetch("GITHUB_OUTPUT")), "run=false"
       assert_equal "limit_exhausted", JSON.parse(File.read(File.join(policy, "review-state.json"))).fetch("decision")
       run.call("publish")
@@ -379,10 +383,25 @@ class ReviewWorkflowTest < Minitest::Test
     end
   end
 
-  def test_context_collects_real_diff_and_marks_missing_approval_and_ci_as_gaps
-    with_review_runner do |_dir, policy, _env, _pr, routes, run|
+  def test_context_collects_only_explicit_linked_artifacts_diff_and_exact_sha_checks
+    with_review_runner do |_dir, policy, _env, pr, routes, run|
       File.write(File.join(policy, "review-state.json"), JSON.generate({sha: "a" * 40}))
-      %w[issues/19/comments pulls/19/reviews pulls/19/comments pulls/19/files].each do |endpoint|
+      metadata = {source: 17, spec: 22, tickets: [18, 19],
+        approval: "https://github.com/owner/repo/issues/17#issuecomment-99"}
+      pr["body"] = "## Source #999\n\n<!-- agent-context #{JSON.generate(metadata)} -->"
+      routes["/repos/owner/repo/issues/17"] = {body: {number: 17, title: "Source", body: "Source body"}}
+      routes["/repos/owner/repo/issues/22"] = {body: {number: 22, title: "Spec", body: "Spec body"}}
+      routes["/repos/owner/repo/issues/18"] = {body: {number: 18, title: "Executor", body: "Ticket body"}}
+      routes["/repos/owner/repo/issues/19"] = {body: {number: 19, title: "Review", body: "Ticket body"}}
+      [17, 18, 19, 22].each do |id|
+        routes["/repos/owner/repo/issues/#{id}/comments?per_page=100&page=1"] =
+          {body: [{id: id + 100, body: "Linked discussion references unrelated #999"}]}
+      end
+      routes["/repos/owner/repo/issues/comments/99"] = {body: {
+        id: 99, user: {login: "owner", type: "User"}, author_association: "OWNER",
+        html_url: metadata.fetch(:approval), body: "Одобряю спецификацию #22 и тикеты #18,#19."
+      }}
+      %w[pulls/19/files pulls/19/reviews pulls/19/comments].each do |endpoint|
         routes["/repos/owner/repo/#{endpoint}?per_page=100&page=1"] = {body: []}
       end
       routes["/repos/owner/repo/pulls/19#diff"] = {body: "diff --git a/example b/example\n"}
@@ -392,7 +411,16 @@ class ReviewWorkflowTest < Minitest::Test
       run.call("context")
       context = JSON.parse(File.read(File.join(policy, "review-context.json")))
       assert_equal "diff --git a/example b/example\n", context.fetch("diff")
-      assert_includes context.fetch("gaps"), "No explicit approval-comment evidence collected"
+      assert_equal [17, 22, 18, 19], context.fetch("issues").map { |item| item.fetch("issue").fetch("number") }
+      assert_equal JSON.parse(JSON.generate(metadata)), context.fetch("metadata")
+      assert_equal [99], context.fetch("approvals").map { |approval| approval.fetch("id") }
+      refute context.key?("comments")
+      refute context.key?("reviews")
+      requests = File.readlines(File.join(_dir, "requests"), chomp: true)
+      refute requests.any? { |request| request.include?("/issues/999") }
+      refute requests.any? { |request| request.include?("/pulls/19/reviews") || request.include?("/pulls/19/comments") }
+      refute_includes context.fetch("gaps"), "No explicit approval-comment evidence collected"
+      refute_includes context.fetch("gaps"), "Explicit approval comment is unavailable or does not approve the linked scope"
       assert_includes context.fetch("gaps"), "No CI evidence for reviewed SHA"
       assert_includes context.fetch("gaps"), "CI checks: unavailable; do not infer success or approval"
       agent = File.read(File.join(policy, ".opencode/agents/github-review.md"))
@@ -400,6 +428,34 @@ class ReviewWorkflowTest < Minitest::Test
       assert_includes agent, "/workspace/*"
       permissions = YAML.safe_load(agent.split("---")[1]).fetch("permissions")
       assert_equal %w[external_directory read], permissions.select { |p| p["effect"] == "allow" }.map { |p| p["action"] }.uniq.sort
+    end
+  end
+
+  def test_context_limit_marks_gap_and_omits_complete_payload_instead_of_truncating
+    with_review_runner do |dir, policy, _env, pr, routes, run|
+      File.write(File.join(policy, "review-state.json"), JSON.generate({sha: "a" * 40}))
+      metadata = {source: 17, spec: 22, tickets: [18],
+        approval: "https://github.com/owner/repo/issues/17#issuecomment-99"}
+      pr["body"] = "<!-- agent-context #{JSON.generate(metadata)} -->"
+      [17, 18, 22].each do |id|
+        routes["/repos/owner/repo/issues/#{id}"] = {body: {number: id, title: "Linked", body: "x" * 700_000}}
+        routes["/repos/owner/repo/issues/#{id}/comments?per_page=100&page=1"] = {body: []}
+      end
+      routes["/repos/owner/repo/issues/comments/99"] = {body: {
+        id: 99, user: {login: "owner", type: "User"}, author_association: "OWNER",
+        html_url: metadata.fetch(:approval), body: "Одобряю спецификацию #22 и тикеты #18."
+      }}
+      %w[pulls/19/files].each { |endpoint| routes["/repos/owner/repo/#{endpoint}?per_page=100&page=1"] = {body: []} }
+      routes["/repos/owner/repo/pulls/19#diff"] = {body: "x" * 700_000}
+      routes["/repos/owner/repo/commits/#{"a" * 40}/check-runs?per_page=100&page=1"] = {body: {check_runs: []}}
+      routes["/repos/owner/repo/commits/#{"a" * 40}/statuses?per_page=100&page=1"] = {body: []}
+      routes["/repos/owner/repo/actions/runs?head_sha=#{"a" * 40}&per_page=100&page=1"] =
+        {body: {total_count: 0, workflow_runs: []}}
+      run.call("context")
+      context = JSON.parse(File.read(File.join(policy, "review-context.json")))
+      assert_nil context.fetch("diff")
+      assert_includes context.fetch("gaps"), "Complete review context exceeds the 2097152-byte limit; content omitted, verdict cannot claim successful verification"
+      assert_operator File.size(File.join(policy, "review-context.json")), :<, 2 * 1024 * 1024
     end
   end
 

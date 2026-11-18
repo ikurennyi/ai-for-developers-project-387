@@ -3,7 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { execFileSync } from "node:child_process"
-import { github, collectBudget, trustedPullRequest } from "./agent-policy.mjs"
+import { github, collectBudget, trustedPullRequest, approvalValid } from "./agent-policy.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const statePath = path.join(root, "review-state.json")
@@ -15,6 +15,7 @@ if (!/^[^/]+\/[^/]+$/.test(repo ?? "") || !/^[1-9]\d*$/.test(number ?? "")) {
 const prefix = `repos/${repo}`
 const prPath = `${prefix}/pulls/${number}`
 const owner = repo.split("/")[0]
+const maxContextBytes = 2 * 1024 * 1024
 const readState = () => JSON.parse(fs.readFileSync(statePath, "utf8"))
 const save = (state) => fs.writeFileSync(statePath, JSON.stringify(state), { mode: 0o600 })
 const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"))
@@ -55,9 +56,34 @@ async function context() {
       return null
     }
   }
-  const comments = await github.paginate(`${prefix}/issues/${number}/comments`)
-  const reviews = await github.paginate(`${prPath}/reviews`)
-  const reviewComments = await github.paginate(`${prPath}/comments`)
+  const linked = /<!-- agent-context (\{[^\n]*\}) -->/u.exec(pr.body ?? "")
+  let metadata
+  try {
+    metadata = linked ? JSON.parse(linked[1]) : null
+  } catch { metadata = null }
+  const validMetadata = metadata && Number.isSafeInteger(metadata.source) && metadata.source > 0 &&
+    Number.isSafeInteger(metadata.spec) && metadata.spec > 0 &&
+    Array.isArray(metadata.tickets) && metadata.tickets.length > 0 &&
+    metadata.tickets.length <= 20 && metadata.tickets.every((id) => Number.isSafeInteger(id) && id > 0) &&
+    new Set(metadata.tickets).size === metadata.tickets.length &&
+    typeof metadata.approval === "string" &&
+    new RegExp(`^https://github\\.com/${repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/issues/${metadata.source}#issuecomment-[1-9]\\d*$`, "u").test(metadata.approval)
+  if (!validMetadata) gaps.push("Explicit source/spec/ticket/approval provenance is missing or invalid")
+  const issues = []
+  const approvals = []
+  if (validMetadata) {
+    for (const id of [metadata.source, metadata.spec, ...metadata.tickets]) {
+      const issue = await optional(`Linked issue #${id}`, () => github(`${prefix}/issues/${id}`))
+      const comments = issue
+        ? await optional(`Discussion for linked issue #${id}`, () => github.paginate(`${prefix}/issues/${id}/comments`))
+        : null
+      if (issue && comments) issues.push({ issue, comments })
+    }
+    const approvalID = metadata.approval.match(/#issuecomment-([1-9]\d*)$/u)?.[1]
+    const approval = await optional("Explicit approval comment", () => github(`${prefix}/issues/comments/${approvalID}`))
+    if (approval && approvalValid(approval, { ...metadata, repo })) approvals.push(approval)
+    else gaps.push("Explicit approval comment is unavailable or does not approve the linked scope")
+  }
   const files = await github.paginate(`${prPath}/files`)
   const diff = await optional("Full PR diff", async () => {
     const response = await fetch(`https://api.github.com/${prPath}`, {
@@ -76,48 +102,47 @@ async function context() {
   const checks = await optional("CI checks", () => github.paginate(`${prefix}/commits/${state.sha}/check-runs`, "check_runs"))
   const statuses = await optional("Commit statuses", () => github.paginate(`${prefix}/commits/${state.sha}/statuses`))
   const runs = await optional("Actions runs", () => github.paginate(`${prefix}/actions/runs?head_sha=${state.sha}`, "workflow_runs"))
-  const issues = []
-  const approvals = []
-  const seen = new Set([Number(number)])
-  const commentIDs = new Set()
-  const queue = []
-  function discover(text) {
-    // Resolve only explicit same-repository issue links/#references. Never fetch
-    // arbitrary URLs from attacker-controlled PR text.
-    const escapedRepo = repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    const links = new RegExp(`https://github\\.com/${escapedRepo}/issues/(\\d+)(?:#issuecomment-(\\d+))?`, "g")
-    for (const match of text.matchAll(links)) {
-      queue.push(Number(match[1]))
-      if (match[2]) commentIDs.add(match[2])
-    }
-    for (const match of text.matchAll(/(?:^|[\s(])#([1-9]\d*)\b/g)) queue.push(Number(match[1]))
-  }
-  discover([pr.body, ...comments.map((c) => c.body)].join("\n"))
-  while (queue.length) {
-    const id = queue.shift()
-    if (seen.has(id)) continue
-    if (issues.length >= 40) { gaps.push("Linked context exceeds 40 issues; remaining context not collected"); break }
-    seen.add(id)
-    const issue = await optional(`Issue #${id}`, () => github(`${prefix}/issues/${id}`))
-    if (!issue) continue
-    const discussion = await optional(`Issue #${id} full discussion`, () => github.paginate(`${prefix}/issues/${id}/comments`))
-    issues.push({ issue, comments: discussion })
-    discover([issue.body, ...(discussion ?? []).map((c) => c.body)].join("\n"))
-  }
-  for (const id of commentIDs) {
-    const comment = await optional(`Approval comment ${id}`, () => github(`${prefix}/issues/comments/${id}`))
-    if (comment) approvals.push(comment)
-  }
   if (!issues.length) gaps.push("Source/spec/ticket links missing or unavailable")
   if (!approvals.length) gaps.push("No explicit approval-comment evidence collected")
   if (!checks?.length && !statuses?.length) gaps.push("No CI evidence for reviewed SHA")
   const currentPR = await github(prPath)
   if (currentPR.head.sha !== state.sha || !trustedPullRequest(currentPR, repo, owner)) throw new Error("PR changed during context collection")
-  fs.writeFileSync(path.join(root, "review-context.json"), JSON.stringify({
-    sha: state.sha, pr, comments, reviews, reviewComments, diff, files, issues, approvals,
+  const context = {
+    sha: state.sha, pr: { number: pr.number, title: pr.title, html_url: pr.html_url },
+    metadata: validMetadata ? metadata : null, diff, files, issues, approvals,
     checks, statuses, runs, gaps,
-    note: "Approval comments are evidence, not automatic approval. Verify human author, exact scope and source discussion."
-  }, null, 2))
+    note: "Only explicitly linked source/spec/tickets/approval, the PR diff and checks for this exact SHA are included. Approval must be verified against its source and exact scope."
+  }
+  let serialized = JSON.stringify(context, null, 2)
+  if (Buffer.byteLength(serialized) > maxContextBytes) {
+    const gap = `Complete review context exceeds the ${maxContextBytes}-byte limit; content omitted, verdict cannot claim successful verification`
+    const limited = (items, maximum, label, project) => {
+      if (!Array.isArray(items)) return null
+      if (items.length > maximum) gaps.push(`${label} summary omits ${items.length - maximum} records`)
+      return items.slice(0, maximum).map(project)
+    }
+    const summary = {
+      sha: state.sha, pr: context.pr, metadata: validMetadata ? metadata : null,
+      diff: null,
+      files: limited(files, 100, "Changed-file", ({ filename, status, additions, deletions, changes }) =>
+        ({ filename: String(filename).slice(0, 300), status, additions, deletions, changes })),
+      issues: limited(issues, 22, "Linked-issue", ({ issue }) => ({
+        issue: { number: issue.number, title: String(issue.title ?? "").slice(0, 200), html_url: issue.html_url }
+      })),
+      approvals: limited(approvals, 5, "Approval", ({ id, html_url, user }) =>
+        ({ id, html_url, user: { login: user?.login, type: user?.type } })),
+      checks: limited(checks, 100, "Check-run", ({ name, status, conclusion, details_url }) =>
+        ({ name: String(name ?? "").slice(0, 200), status, conclusion, details_url: String(details_url ?? "").slice(0, 500) })),
+      statuses: limited(statuses, 100, "Commit-status", ({ context: name, state, target_url }) =>
+        ({ context: String(name ?? "").slice(0, 200), state, target_url: String(target_url ?? "").slice(0, 500) })),
+      runs: limited(runs, 100, "Actions-run", ({ id, run_attempt, status, conclusion, html_url }) =>
+        ({ id, run_attempt, status, conclusion, html_url })),
+      gaps: [...gaps, gap],
+      note: context.note
+    }
+    serialized = JSON.stringify(summary, null, 2)
+  }
+  fs.writeFileSync(path.join(root, "review-context.json"), serialized)
 }
 
 async function publish() {
