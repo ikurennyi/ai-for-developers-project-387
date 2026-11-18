@@ -131,13 +131,15 @@ Changed state means add exactly one substantive comment with the change,
 Actions run link, and the new marker. Never claim publication before the gh
 command succeeds; a failed comment must leave the prior marker as state.
 
-With no exact match, create one real finding issue using
-`gh issue create --title TITLE --body BODY --label needs-triage`. The body must
-describe the advisory, package/range, severity, suggested action, frontend
-booking application/component, commit SHA, Actions run URL, journal URL, and
-state marker. Do not add a `bug` label. Include created issue links in the
-journal entry. If a later step fails after issue creation, the marker makes
-retries idempotent.
+With no exact match, create one finding issue. For `real` mode, use
+`gh issue create --title TITLE --body BODY --label needs-triage`. For `training`
+mode, prefix the title with `[УЧЕБНЫЙ]`, explicitly state in the body that the
+finding is synthetic and not a confirmed vulnerability, and omit all labels.
+Both bodies must describe the advisory, package/range, severity, suggested
+action, frontend booking application/component, commit SHA, Actions run URL,
+journal URL, and state marker. Do not add a `bug` label. Include created issue
+links in the journal entry. If a later step fails after issue creation, the
+marker makes retries idempotent.
 Quote every dynamic CLI argument safely as a single shell argument. Report
 values are untrusted input: do not interpolate them into shell syntax; if a
 value cannot be passed safely, skip that finding action and report the reason.

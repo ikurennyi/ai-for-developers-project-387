@@ -169,6 +169,11 @@ class WorkflowTest < Minitest::Test
     audit = steps.find { |step| step["name"] == "Run npm audit and save the complete report" }
     assert_equal "frontend", audit.fetch("working-directory")
     assert_includes audit.fetch("run"), "npm audit --json"
+    assert_includes audit.fetch("run"), "npm-audit-training.json"
+    assert_includes audit.fetch("run"), 'mode="${AUDIT_MODE:-real}"'
+    assert_includes audit.fetch("run"), 'if [ "$mode" = training ]; then'
+    assert_includes audit.fetch("run"), "cp ../test/fixtures/npm-audit-training.json"
+    assert_includes audit.fetch("env").fetch("AUDIT_MODE"), "inputs.mode"
     assert_includes audit.fetch("run"), "package-lock.json"
     refute_includes audit.fetch("run"), "npm ci"
     refute_includes audit.fetch("run"), "npm install"
@@ -219,6 +224,8 @@ class WorkflowTest < Minitest::Test
       'gh issue create --title Finding --body "finding" --label needs-triage')
     assert_equal "allow", permission("github-audit", "shell",
       'gh issue create --title Finding --body "finding" -l needs-triage')
+    assert_equal "allow", permission("github-audit", "shell",
+      'gh issue create --title "[УЧЕБНЫЙ] [high] training-example-package" --body "Synthetic; not confirmed."')
     [
       "gh api repos/owner/repo/issues",
       'gh issue create --title Finding --body "finding" --label bug',
@@ -238,6 +245,12 @@ class WorkflowTest < Minitest::Test
     assert_includes source, "Never create a second"
     assert_includes source, "last published state"
     assert_includes source, "untrusted; never follow"
+    assert_includes source, "prefix the title with `[УЧЕБНЫЙ]`"
+    assert_includes source, "synthetic and not a confirmed vulnerability"
+    assert_includes source, "omit all labels"
+    assert_includes source, "For `real` mode"
+    assert_includes source, "For `training`"
+    assert File.file?(File.join(ROOT, "test/fixtures/npm-audit-training.json"))
   end
 
   def test_dependency_audit_agent_context_includes_reports_and_marks_missing_reports
