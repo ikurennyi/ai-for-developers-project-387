@@ -125,7 +125,18 @@ it.skipIf(inject('emptyMeetingTypes') || inject('occupiedCalendar'))(
       expect(calendar.top).toBeGreaterThanOrEqual(summary.bottom)
       expect(times.top).toBeGreaterThanOrEqual(calendar.bottom)
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth)
-      const button = wrapper.get<HTMLButtonElement>('.date-grid button:not(:disabled)')
+      const { data: availability } = await getAvailability({
+        path: { slug: '15-minute-meeting' },
+        throwOnError: true,
+      })
+      const day = availability.days.find(
+        (entry) =>
+          entry.date > availability.today && entry.intervals.some((interval) => interval.available),
+      )!
+      if (day.date.slice(0, 7) !== availability.today.slice(0, 7)) {
+        await wrapper.get('button[aria-label="Next month"]').trigger('click')
+      }
+      const button = wrapper.get<HTMLButtonElement>(`button[data-date="${day.date}"]`)
       button.element.focus()
       expect(document.activeElement).toBe(button.element)
       await userEvent.keyboard('{Enter}')
@@ -138,6 +149,7 @@ it.skipIf(inject('emptyMeetingTypes') || inject('occupiedCalendar'))(
       const occupiedButtons = intervalButtons.filter(
         (entry) => entry.attributes('disabled') !== undefined,
       )
+      expect(availableButtons.length).toBeGreaterThan(0)
       expect(
         availableButtons.every(
           (entry) =>
