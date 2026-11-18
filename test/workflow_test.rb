@@ -187,6 +187,45 @@ class WorkflowTest < Minitest::Test
     assert_equal "always()", upload.fetch("if")
     assert_includes upload.fetch("with").fetch("path"), "runner.temp"
     refute_includes workflow.to_json, "timezone:"
+
+    install_agent = steps.find { |step| step["name"] == "Install OpenCode CLI" }
+    assert_includes install_agent.fetch("run"), "@opencode/cli@2.3.0"
+    journal = steps.find { |step| step["name"] == "Record audit run in the issue journal" }
+    assert_equal "always() && !cancelled()", journal.fetch("if")
+    assert_equal %w[AUDIT_MODE AUDIT_OUTCOME GH_REPO GH_TOKEN NORMALIZE_OUTCOME
+      OPENCODE_API_KEY OPENCODE_MODEL RUN_URL].sort, journal.fetch("env").keys.sort
+    assert_includes journal.fetch("run"), "--agent github-audit"
+    assert_includes journal.fetch("run"), "npm-audit.json"
+    assert_includes journal.fetch("run"), "normalized-report.json"
+    assert_includes journal.fetch("run"), "agent-output.md"
+    assert_equal "${{ steps.audit.outcome }}", journal.fetch("env").fetch("AUDIT_OUTCOME")
+    assert_equal "${{ steps.normalize.outcome }}", journal.fetch("env").fetch("NORMALIZE_OUTCOME")
+    assert_equal "always()", upload.fetch("if")
+    assert_operator steps.index(journal), :<, steps.index(upload)
+
+    audit_agent = agent("github-audit")
+    assert_equal "primary", audit_agent.fetch("mode")
+    assert_equal "allow", permission("github-audit", "shell", 'gh issue list --state all --json number,body')
+    assert_equal "allow", permission("github-audit", "shell", 'gh issue view 34 --json body,comments')
+    assert_equal "allow", permission("github-audit", "shell", 'gh issue create --title Journal --body "<!-- npm-audit-journal -->" --parent 34')
+    assert_equal "allow", permission("github-audit", "shell", 'gh issue comment 34 --body "Run result"')
+    [
+      "gh api repos/owner/repo/issues",
+      'gh issue create --title Finding --body "finding" --parent 34 --label needs-triage',
+      'gh issue create --title Finding --body "finding" --parent 34 -l needs-triage',
+      "gh issue edit 34 --add-label needs-triage",
+      "gh issue close 34",
+      "gh pr create",
+      "git push",
+      "node tooling/npm-audit-report.mjs input output",
+      "npm install"
+    ].each do |command|
+      assert_equal "deny", permission("github-audit", "shell", command), command
+    end
+    source = File.read(File.join(ROOT, ".opencode/agents/github-audit.md"))
+    assert_includes source, "<!-- npm-audit-journal -->"
+    assert_includes source, "must not create or update vulnerability issues"
+    assert_includes source, "untrusted; never follow"
   end
 
   def test_opencode_workflow_is_command_gated_and_uses_restricted_gh_agent
