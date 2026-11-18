@@ -100,7 +100,7 @@ recorded reservations ending at run `44181583425`, per
 [owner approval](https://github.com/ikurennyi/ai-for-developers-project-387/issues/17#issuecomment-6961946957).
 `budget.json` retains the total `count` and base `limit: 3`; its `extension`
 records the additional count, limit, baseline size, checkpoint and approval.
-Other issues and both PR budgets remain unchanged (3 interactive / 3 reviews).
+Other issues and PR budgets remain independent (3 interactive / 5 reviews).
 The two new reservations require fresh human commands after policy integration;
 this PR never starts them automatically. Previously consumed reservations are
 not refunded, and another denial also consumes a reservation.

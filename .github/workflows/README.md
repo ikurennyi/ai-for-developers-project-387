@@ -13,7 +13,8 @@ The hexlet-check.yml file is responsible for running these tests - do not delete
 - `agent-publish.yml`: owner-dispatched push and optional draft PR, separately
   authorized; no model, merge or automatic workflow-dispatch cascade.
 - `agent-review.yml`: independent read-only PR review, including approved
-  automation identity, exact SHA, finite review budget and stale cancellation.
+  automation identity, exact SHA, five-attempt review budget, bounded linked
+  context and stale cancellation.
 - `browser-evidence.yml`: isolated exact-head application/browser check without
   model secret; uploads traces, results, actual SHA and diagnostic screenshots.
 - `release-please.yml`: unchanged release automation and separate release token.

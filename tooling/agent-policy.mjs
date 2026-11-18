@@ -113,7 +113,8 @@ export function budgetDecision({ runs, current, mode, scope, workflowPath, histo
     if (run.admitted) { count += 1; admitted.set(key, run) }
   }
   if (!found) return deny
-  const result = { decision: count > 3 ? "limit_exhausted" : "allow", count, limit: 3, scope, mode }
+  const limit = mode === "review" ? 5 : 3
+  const result = { decision: count > limit ? "limit_exhausted" : "allow", count, limit, scope, mode }
   if (extension === undefined) return result
   if (!validExtension(extension) || extension.scope !== scope || extension.mode !== mode ||
       extension.workflowPath !== workflowPath) return deny

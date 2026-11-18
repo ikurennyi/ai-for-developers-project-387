@@ -180,7 +180,7 @@ Workflow разделены по назначению:
 | `.github/workflows/opencode.yml` | `issue_comment`, `pull_request_review_comment`, оба `types: [created]` | Ручные команды, обсуждение и публикация спецификаций/тикетов |
 | `.github/workflows/implement-spec.yml` | Оба канала человеческих комментариев | Согласованная реализация/правки, бюджет, изолированная модель и отдельные проверки |
 | `.github/workflows/agent-publish.yml` | `workflow_dispatch` владельца | Отдельно разрешённые push и создание draft PR |
-| `.github/workflows/agent-review.yml` | `pull_request`, ручной запуск владельца | Независимое read-only авторевью |
+| `.github/workflows/agent-review.yml` | `pull_request`, ручной запуск владельца | Независимое read-only авторевью: до 5 попыток на PR, только явно связанные артефакты и diff/checks точного SHA |
 | `.github/workflows/browser-evidence.yml` | `pull_request` | Браузерные доказательства точного head SHA без секрета модели |
 
 Для комментариев требуется отдельная команда `/oc` или `/opencode`.

@@ -36,6 +36,20 @@ test("three attempts are allowed, fourth refused; current attempt counts exactly
   assert.equal(budget([run(1), run(2), run(3), run(4)], 4).decision, "limit_exhausted")
 })
 
+test("review has five independent attempts while interactive remains limited to three", () => {
+  const review = (id) => ({ ...run(id, 1, "review"), path: ".github/workflows/agent-review.yml" })
+  const attempts = [review(1), review(2), review(3), review(4), review(5)]
+  const decide = (runs, id) => budgetDecision({
+    runs, current: { id, run_attempt: 1 }, mode: "review", scope: "pr-8",
+    workflowPath: ".github/workflows/agent-review.yml", historyComplete: true
+  })
+  assert.equal(decide(attempts, 5).decision, "allow")
+  assert.equal(decide(attempts, 5).limit, 5)
+  assert.equal(decide([...attempts, review(6)], 6).decision, "limit_exhausted")
+  assert.equal(budget([review(1), run(6), run(7), run(8)], 8).decision, "allow")
+  assert.equal(budget([review(1), run(6), run(7), run(8), run(9)], 9).decision, "limit_exhausted")
+})
+
 test("rerun, timeout, cancellation reserve attempts; budgets and PRs stay independent", () => {
   const attempts = [run(1, 1), run(1, 2), run(1, 3)]
   assert.equal(budget(attempts, 1, 3).decision, "allow")
@@ -145,14 +159,15 @@ test("issue grants leave other issue and both PR budgets unchanged", async () =>
     ["issue-99", "interactive", workflowPath], ["pr-8", "interactive", workflowPath],
     ["pr-8", "review", ".github/workflows/agent-review.yml"]
   ]) {
-    for (const count of [3, 4]) {
+    const limit = mode === "review" ? 5 : 3
+    for (const count of [limit, limit + 1]) {
       const api = Object.assign(async () => { throw new Error("Unrelated grant must not fetch approval") },
         { paginate: async (_path, key) => key === "workflow_runs"
           ? Array.from({ length: count }, (_, index) => ({ id: index + 1, run_attempt: 1, path }))
           : [{ name: `agent-admission:${scope}:${mode}`, conclusion: null }] })
       const decision = await collectBudget({ api, repo: "owner/repo", scope, mode, workflowPath: path,
         current: { id: count, run_attempt: 1 }, grants: [extension()] })
-      assert.equal(decision.decision, count === 3 ? "allow" : "limit_exhausted")
+      assert.equal(decision.decision, count === limit ? "allow" : "limit_exhausted")
       assert.equal(decision.count, count)
       assert.equal(decision.extension, undefined)
     }
