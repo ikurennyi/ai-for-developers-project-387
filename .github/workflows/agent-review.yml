@@ -91,7 +91,7 @@ jobs:
     needs: policy
     if: needs.policy.outputs.ready == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     concurrency:
       group: agent-review-${{ github.repository }}-pr-${{ github.event.pull_request.number || inputs.pr }}
       cancel-in-progress: true
@@ -159,7 +159,7 @@ jobs:
           fi
           echo "started=true" >> "$GITHUB_OUTPUT"
           set +e
-          timeout --signal=TERM --kill-after=20s 10m docker run --rm --name "review-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+          timeout --signal=TERM --kill-after=20s 20m docker run --rm --name "review-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --read-only --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,nosuid,nodev \
             --env HOME=/tmp --env OPENCODE_API_KEY \
