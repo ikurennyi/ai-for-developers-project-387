@@ -1,0 +1,93 @@
+name: Frontend dependency audit
+
+"on":
+  schedule:
+    - cron: "23 1 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Audit mode
+        required: true
+        type: choice
+        options:
+          - real
+          - training
+        default: real
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: frontend-dependency-audit-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Prepare audit output directory
+        run: mkdir -p "$RUNNER_TEMP/dependency-audit"
+
+      - name: Run npm audit and save the complete report
+        working-directory: frontend
+        env:
+          REPORT_PATH: ${{ runner.temp }}/dependency-audit/npm-audit.json
+        run: |
+          set -euo pipefail
+          test -s package.json
+          test -s package-lock.json
+          set +e
+          npm audit --json > "$REPORT_PATH"
+          audit_status=$?
+          set -e
+          if ! node -e '
+            const fs = require("node:fs")
+            const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+            if (!report || typeof report !== "object" ||
+                !Number.isInteger(report.auditReportVersion) ||
+                !report.vulnerabilities || typeof report.vulnerabilities !== "object" ||
+                report.error) process.exit(1)
+          ' "$REPORT_PATH"; then
+            echo "npm audit failed or did not produce a valid audit report (exit $audit_status)" >&2
+            exit 1
+          fi
+
+      - name: Write run metadata
+        if: always()
+        env:
+          AUDIT_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          mode="${AUDIT_MODE:-real}"
+          if [ "$mode" != real ] && [ "$mode" != training ]; then mode=real; fi
+          AUDIT_MODE="$mode" node -e '
+            const fs = require("node:fs")
+            const metadata = {
+              run_id: process.env.GITHUB_RUN_ID,
+              run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+              commit_sha: process.env.GITHUB_SHA,
+              trigger: process.env.GITHUB_EVENT_NAME,
+              mode: process.env.AUDIT_MODE,
+              created_at: new Date().toISOString()
+            }
+            fs.writeFileSync(process.env.RUNNER_TEMP + "/dependency-audit/metadata.json",
+              JSON.stringify(metadata, null, 2) + "\n")
+          '
+
+      - name: Upload audit report and metadata
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frontend-dependency-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/dependency-audit/
+          if-no-files-found: error
+          retention-days: 14
