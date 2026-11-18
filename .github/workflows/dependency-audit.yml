@@ -61,6 +61,18 @@ jobs:
             exit 1
           fi
 
+      - name: Normalize npm audit report
+        env:
+          AUDIT_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          mode="${AUDIT_MODE:-real}"
+          if [ "$mode" != real ] && [ "$mode" != training ]; then mode=real; fi
+          node tooling/npm-audit-report.mjs \
+            "$RUNNER_TEMP/dependency-audit/npm-audit.json" \
+            "$RUNNER_TEMP/dependency-audit/normalized-report.json" \
+            "$mode"
+
       - name: Write run metadata
         if: always()
         env:
