@@ -174,6 +174,13 @@ class WorkflowTest < Minitest::Test
     refute_includes audit.fetch("run"), "npm install"
     refute_includes audit.fetch("run"), "npm audit fix"
 
+    normalize = steps.find { |step| step["name"] == "Normalize npm audit report" }
+    assert_includes normalize.fetch("run"), "tooling/npm-audit-report.mjs"
+    assert_includes normalize.fetch("run"), "normalized-report.json"
+    assert_includes normalize.fetch("run"), "$RUNNER_TEMP"
+    assert_includes normalize.fetch("run"), "training"
+    assert_operator steps.index(audit), :<, steps.index(normalize)
+
     upload = steps.find { |step| step["name"] == "Upload audit report and metadata" }
     assert_equal 14, upload.fetch("with").fetch("retention-days")
     assert_includes upload.fetch("with").fetch("name"), "${{ github.run_id }}"
